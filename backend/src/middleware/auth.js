@@ -6,10 +6,12 @@ const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || JWT_SECRET;
 
 function getDemoUser(req) {
   if (process.env.DEMO_MODE === 'true' || req.headers.authorization?.split(' ')[1] === 'demo-token') {
+    const userType = req.headers['x-demo-user-type'] || 'issuer';
     return {
       id: 1,
       email: 'demo@certicheck.io',
-      user_type: req.headers['x-demo-user-type'] || 'issuer'
+      user_type: userType,
+      userType
     };
   }
   return null;
@@ -22,16 +24,17 @@ function verifyAdminToken(req, res, next) {
   // Demo token support for admin via header
   const demoUser = getDemoUser(req);
   if (demoUser && (req.headers['x-demo-user-type'] === 'admin' || process.env.DEMO_MODE === 'true')) {
-    req.user = { ...demoUser, user_type: 'admin' };
+    req.user = { ...demoUser, user_type: 'admin', userType: 'admin' };
     return next();
   }
 
   try {
     const decoded = jwt.verify(token, ADMIN_JWT_SECRET);
-    if (!decoded || decoded.user_type !== 'admin') {
+    const userType = decoded?.userType ?? decoded?.user_type;
+    if (userType !== 'admin') {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    req.user = decoded;
+    req.user = { ...decoded, user_type: userType, userType };
     return next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -53,7 +56,15 @@ function verifyToken(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    req.user = {
+      ...decoded,
+      first_name: decoded.first_name ?? decoded.firstName,
+      last_name: decoded.last_name ?? decoded.lastName,
+      user_type: decoded.user_type ?? decoded.userType
+    };
+    req.user.firstName = req.user.first_name;
+    req.user.lastName = req.user.last_name;
+    req.user.userType = req.user.user_type;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -103,15 +114,17 @@ async function verifyAdmin(req, res, next) {
     }
 
     const user = await resolveUserAccess(req);
-    const effectiveUserType = req.user.user_type === 'admin'
+    const tokenUserType = req.user.userType || req.user.user_type;
+    const effectiveUserType = tokenUserType === 'admin'
       ? 'admin'
-      : user?.user_type || req.user.user_type;
+      : user?.user_type || tokenUserType;
 
     if (effectiveUserType !== 'admin') {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
     req.user.user_type = effectiveUserType;
+    req.user.userType = effectiveUserType;
     req.user.is_active = user?.is_active ?? req.user.is_active;
     next();
   } catch (err) {

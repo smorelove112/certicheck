@@ -45,7 +45,6 @@ DB_NAME=certicheck
 JWT_SECRET=your_secret_key_here
 JWT_EXPIRE=7d
 ADMIN_EMAIL=admin@certicheck.com
-ADMIN_PASSWORD=change-me-in-production
 
 # IPFS / Pinata
 PINATA_JWT=
@@ -58,6 +57,8 @@ SOLANA_KEYPAIR_PATH=~/.config/solana/id.json
 SOLANA_PAYER_SECRET=
 CERTIFICATE_PROGRAM_ID=
 ```
+
+On first authentication, the backend seeds three admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change it before exposing a deployment publicly.
 
 Without `PINATA_JWT`, metadata pinning uses the documented local/demo fallback and no real Pinata CID should be claimed. Without `SOLANA_ENABLE=true`, `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`, and a deployed `CERTIFICATE_PROGRAM_ID`, on-chain issuance is disabled and the Solana test is skipped.
 

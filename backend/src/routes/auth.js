@@ -17,6 +17,52 @@ function isCertiCheckEmail(email) {
   return normalizeEmail(email).endsWith('@certicheck.com');
 }
 
+const DEFAULT_ADMIN_PASSWORD = 'password';
+const DEFAULT_ADMIN_ACCOUNTS = [
+  {
+    email: normalizeEmail(process.env.ADMIN_EMAIL || 'admin@certicheck.com'),
+    password: DEFAULT_ADMIN_PASSWORD,
+    firstName: 'Admin',
+    lastName: 'User',
+    userType: 'admin'
+  },
+  {
+    email: 'admin2@certicheck.com',
+    password: DEFAULT_ADMIN_PASSWORD,
+    firstName: 'Alex',
+    lastName: 'Admin',
+    userType: 'admin'
+  },
+  {
+    email: 'admin3@certicheck.com',
+    password: DEFAULT_ADMIN_PASSWORD,
+    firstName: 'Jordan',
+    lastName: 'Admin',
+    userType: 'admin'
+  }
+];
+
+function isReservedAdminEmail(email) {
+  return DEFAULT_ADMIN_ACCOUNTS.some(account => account.email === normalizeEmail(email));
+}
+
+function buildAuthIdentity(user) {
+  const firstName = user.first_name ?? user.firstName ?? '';
+  const lastName = user.last_name ?? user.lastName ?? '';
+  const userType = user.user_type ?? user.userType ?? 'user';
+
+  return {
+    id: user.id,
+    firstName,
+    lastName,
+    email: user.email,
+    userType,
+    first_name: firstName,
+    last_name: lastName,
+    user_type: userType
+  };
+}
+
 function validateNewPassword(password) {
   return typeof password === 'string' && password.length >= 6 && password !== 'password';
 }
@@ -33,13 +79,7 @@ function setAuthCookie(res, token) {
 
 async function ensureSeededAccounts() {
   const defaultAccounts = [
-    {
-      email: process.env.ADMIN_EMAIL || 'admin@certicheck.com',
-      password: process.env.ADMIN_PASSWORD || 'admin123',
-      firstName: 'Admin',
-      lastName: 'User',
-      userType: 'admin'
-    },
+    ...DEFAULT_ADMIN_ACCOUNTS,
     {
       email: process.env.ISSUER_EMAIL || 'issuer@certicheck.com',
       password: process.env.ISSUER_PASSWORD || 'password',
@@ -68,15 +108,12 @@ async function ensureSeededAccounts() {
       continue;
     }
 
-    await User.updatePassword(account.email, account.password);
-
-    if (account.userType === 'admin' && existingUser.user_type !== 'admin') {
-      await pool.query(
-        `UPDATE users
-         SET user_type = 'admin', first_name = $1, last_name = $2, is_active = TRUE, updated_at = NOW()
-         WHERE id = $3`,
-        [account.firstName, account.lastName, existingUser.id]
-      );
+    if (account.userType === 'admin') {
+      const legacyPassword = process.env.ADMIN_PASSWORD || 'admin123';
+      if (existingUser.user_type === 'admin' && account.password !== legacyPassword && await User.verifyPassword(account.email, legacyPassword)) {
+        await User.updatePassword(account.email, account.password, false);
+      }
+      continue;
     }
 
     if (account.userType === 'issuer') {
@@ -114,6 +151,10 @@ router.post('/send-otp', async (req, res) => {
       return res.status(400).json({ error: 'Please use a valid @certicheck.com email address' });
     }
 
+    if (isReservedAdminEmail(email)) {
+      return res.status(403).json({ error: 'This email is reserved for admin access' });
+    }
+
     // Check if email already registered
     const existingUser = await User.findByEmail(email);
     if (existingUser) {
@@ -144,6 +185,10 @@ router.post('/resend-otp', async (req, res) => {
 
     if (!email || !EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
       return res.status(400).json({ error: 'A valid @certicheck.com email is required' });
+    }
+
+    if (isReservedAdminEmail(email)) {
+      return res.status(403).json({ error: 'This email is reserved for admin access' });
     }
 
     const existingUser = await User.findByEmail(email);
@@ -206,8 +251,19 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: email, password, firstName, lastName' });
     }
 
+    if (userType === 'admin') {
+      return res.status(403).json({ error: 'Admin accounts cannot be created through registration' });
+    }
+    if (!['user', 'issuer'].includes(userType)) {
+      return res.status(400).json({ error: 'Invalid user type' });
+    }
+
     if (!EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
       return res.status(400).json({ error: 'Please use a valid @certicheck.com email address' });
+    }
+
+    if (isReservedAdminEmail(email)) {
+      return res.status(403).json({ error: 'This email is reserved for admin access' });
     }
 
     // Verify OTP requirement: check if verified in session or via direct OTP parameter
@@ -238,8 +294,9 @@ router.post('/register', async (req, res) => {
     // Send welcome email
     await EmailService.sendWelcome(email, firstName);
 
+    const identity = buildAuthIdentity(newUser);
     const token = jwt.sign(
-      { id: newUser.id, email: newUser.email, user_type: newUser.user_type },
+      identity,
       JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRE || '7d' }
     );
@@ -247,7 +304,7 @@ router.post('/register', async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Registration successful',
-      user: newUser,
+      user: { ...newUser, ...identity },
       token
     });
   } catch (err) {
@@ -421,8 +478,9 @@ router.post('/login', async (req, res) => {
     );
     const profile = issuerProfile.rows[0] || {};
 
+    const identity = buildAuthIdentity(user);
     const token = jwt.sign(
-      { id: user.id, email: user.email, user_type: user.user_type },
+      identity,
       JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRE || '7d' }
     );
@@ -432,7 +490,7 @@ router.post('/login', async (req, res) => {
     res.json({
       success: true,
       message: 'Login successful',
-      user: { id: user.id, email: user.email, first_name: user.first_name, last_name: user.last_name, user_type: user.user_type, must_change_password: user.must_change_password, organization_name: profile.organization_name || '', issuer_status: profile.status || '', wallet: profile.wallet_address || '' },
+      user: { ...identity, must_change_password: user.must_change_password, organization_name: profile.organization_name || '', issuer_status: profile.status || '', wallet: profile.wallet_address || '' },
       token
     });
   } catch (err) {
@@ -451,15 +509,15 @@ router.post('/admin/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    // If running in DEMO_MODE, allow a built-in admin account without DB.
+    // In demo mode, accept each of the seeded admin identities without a database.
     if (process.env.DEMO_MODE === 'true') {
-      const demoEmail = (process.env.ADMIN_EMAIL || 'admin@certicheck.com').toLowerCase();
-      const demoPassword = process.env.ADMIN_PASSWORD || 'admin123';
-      if (email === demoEmail && password === demoPassword) {
-        const token = jwt.sign({ id: 0, email: email, user_type: 'admin', isAdmin: true }, process.env.ADMIN_JWT_SECRET || JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
+      const demoAdmin = DEFAULT_ADMIN_ACCOUNTS.find(account => account.email === email && account.password === password);
+      if (demoAdmin) {
+        const identity = buildAuthIdentity({ id: 1, ...demoAdmin });
+        const token = jwt.sign({ ...identity, isAdmin: true }, process.env.ADMIN_JWT_SECRET || JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
         setAuthCookie(res, token);
-        await logAudit(0, 'LOGIN', 'admin', 0, 'success');
-        return res.json({ success: true, token, user: { id: 0, email, first_name: 'Admin', last_name: 'User', user_type: 'admin' } });
+        await logAudit(1, 'LOGIN', 'admin', 1, 'success');
+        return res.json({ success: true, token, user: identity });
       }
       await logAudit(null, 'LOGIN', 'admin', null, 'failed', 'Invalid admin credentials (demo)');
       return res.status(401).json({ error: 'Incorrect email or password' });
@@ -479,12 +537,13 @@ router.post('/admin/login', async (req, res) => {
       return res.status(403).json({ error: 'Account inactive' });
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email, user_type: 'admin', isAdmin: true }, process.env.ADMIN_JWT_SECRET || JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
-  setAuthCookie(res, token);
+    const identity = buildAuthIdentity(user);
+    const token = jwt.sign({ ...identity, isAdmin: true }, process.env.ADMIN_JWT_SECRET || JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
+    setAuthCookie(res, token);
 
     await logAudit(user.id, 'LOGIN', 'admin', user.id, 'success');
 
-    res.json({ success: true, token, user: { id: user.id, email: user.email, first_name: user.first_name, last_name: user.last_name, user_type: user.user_type } });
+    res.json({ success: true, token, user: identity });
   } catch (err) {
     console.error('Admin login error:', err);
     res.status(500).json({ error: 'Login failed' });

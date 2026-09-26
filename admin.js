@@ -17,6 +17,7 @@ let adminReviewFilters = {
   status: 'all',
   sort: 'newest'
 };
+let adminActivityExpanded = false;
 let adminPollTimer = null;
 
 function startAdminDashboardPolling() {
@@ -178,6 +179,16 @@ function getApplicationList(data) {
   return [];
 }
 
+function getAdminDisplayName(user) {
+  const firstName = user?.firstName || user?.first_name || '';
+  const lastName = user?.lastName || user?.last_name || '';
+  return [firstName, lastName].filter(Boolean).join(' ') || user?.email || 'Admin';
+}
+
+function getAdminHeaderLabel(user) {
+  return `Signed in as ${getAdminDisplayName(user)} (Admin)`;
+}
+
 function setAdminState(enabled, user = null) {
   const loginCard = document.getElementById("adminLoginCard");
   const dashboard = document.getElementById("adminDashboard");
@@ -203,16 +214,14 @@ function setAdminState(enabled, user = null) {
     if (mainGrid) mainGrid.style.display = 'grid';
     clearAdminError();
     if (welcome) {
-      welcome.textContent = user?.first_name || user?.email || "Admin";
+      welcome.textContent = getAdminDisplayName(user);
     }
     const navAdminName = document.getElementById('navAdminName');
     const navAdminEmail = document.getElementById('navAdminEmail');
     const menuName = document.getElementById('menuName');
     const menuEmail = document.getElementById('menuEmail');
-    const displayName = user?.first_name
-      ? `${user.first_name} ${user.last_name || ''}`.trim()
-      : (user?.email || 'Admin');
-    if (navAdminName) navAdminName.textContent = displayName;
+    const displayName = getAdminDisplayName(user);
+    if (navAdminName) navAdminName.textContent = getAdminHeaderLabel(user);
     if (menuName) menuName.textContent = displayName;
     if (navAdminEmail) navAdminEmail.textContent = user?.email || '';
     if (menuEmail) menuEmail.textContent = user?.email || '';
@@ -220,11 +229,13 @@ function setAdminState(enabled, user = null) {
     const profileEmail = document.getElementById('adminProfileEmail');
     const profileRole = document.getElementById('adminProfileRole');
     const avatar = document.querySelector('#adminProfile div[style*="width:72px"]');
-    if (profileName) profileName.textContent = user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : (user?.email || 'Admin');
+    if (profileName) profileName.textContent = displayName;
     if (profileEmail) profileEmail.textContent = user?.email || '';
-    if (profileRole) profileRole.innerHTML = `<span style="background:rgba(124,58,237,0.08);color:var(--purple-mid);padding:6px 10px;border-radius:999px;font-weight:700;font-size:12px;">${(user?.user_type || 'admin').toUpperCase()}</span>`;
-    if (avatar && user?.first_name) {
-      const initials = (user.first_name[0] || 'A') + (user.last_name ? user.last_name[0] : 'D');
+    if (profileRole) profileRole.innerHTML = `<span style="background:rgba(124,58,237,0.08);color:var(--purple-mid);padding:6px 10px;border-radius:999px;font-weight:700;font-size:12px;">${(user?.userType || user?.user_type || 'admin').toUpperCase()}</span>`;
+    const firstName = user?.firstName || user?.first_name;
+    const lastName = user?.lastName || user?.last_name;
+    if (avatar && firstName) {
+      const initials = (firstName[0] || 'A') + (lastName ? lastName[0] : 'D');
       avatar.textContent = initials.toUpperCase();
     }
     loadAdminDashboard();
@@ -251,6 +262,7 @@ function bindQuickActions() {
   container.querySelectorAll('button[data-action-quick]').forEach(btn => {
     btn.addEventListener('click', () => {
       const action = btn.dataset.actionQuick;
+      adminActivityExpanded = false;
       adminAuditFilter = action || 'all';
       if (['pending', 'approved', 'rejected', 'revoked', 'checks'].includes(action)) {
         adminReviewFilters.status = action;
@@ -520,16 +532,19 @@ function bindAdminReviewControls() {
 
   searchInput?.addEventListener('input', (event) => {
     adminReviewFilters.query = event.target.value;
+    adminActivityExpanded = false;
     renderAdminDashboard();
   });
 
   statusSelect?.addEventListener('change', (event) => {
     adminReviewFilters.status = event.target.value || 'all';
+    adminActivityExpanded = false;
     renderAdminDashboard();
   });
 
   sortSelect?.addEventListener('change', (event) => {
     adminReviewFilters.sort = event.target.value || 'newest';
+    adminActivityExpanded = false;
     renderAdminDashboard();
   });
 
@@ -652,7 +667,7 @@ function renderAdminDashboard() {
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:13px;">
           <input id="adminSelectAll" type="checkbox" />
-          Select all
+          ${!adminActivityExpanded && reviewItems.length > 5 ? 'Select visible' : 'Select all'}
         </label>
         <button id="adminBulkApprove" class="btn-success" type="button">Approve selected</button>
         <button id="adminBulkReject" class="btn-danger" type="button">Reject selected</button>
@@ -666,7 +681,8 @@ function renderAdminDashboard() {
     return;
   }
 
-  list.innerHTML = toolbar + `<div class="admin-review-list" role="region" aria-label="Activity entries" tabindex="0">` + reviewItems.map(item => {
+  const visibleReviewItems = adminActivityExpanded ? reviewItems : reviewItems.slice(0, 5);
+  const activityMarkup = visibleReviewItems.map(item => {
     const applicantEmail = item.contact_email || '';
     const applicantName = item.organization_name || 'Applicant';
     return `
@@ -693,9 +709,19 @@ function renderAdminDashboard() {
         </div>
       </div>
     `;
-  }).join('') + `</div>`;
+  }).join('');
+  const activityToggle = reviewItems.length > 5
+    ? `<button class="btn-ghost" type="button" data-toggle-activity aria-expanded="${adminActivityExpanded}" aria-controls="adminActivityItems" style="margin-top:12px;">${adminActivityExpanded ? 'Show recent activity' : `View all activity (${reviewItems.length})`}</button>`
+    : '';
+
+  list.innerHTML = toolbar + `<div id="adminActivityItems">${activityMarkup}</div>${activityToggle}`;
 
   bindAdminReviewControls();
+
+  list.querySelector('[data-toggle-activity]')?.addEventListener('click', () => {
+    adminActivityExpanded = !adminActivityExpanded;
+    renderAdminDashboard();
+  });
 
   list.querySelectorAll('[data-open-detail]').forEach(button => {
     button.addEventListener('click', (event) => {
@@ -817,7 +843,7 @@ async function loginAdmin(event) {
       body: JSON.stringify({ email, password })
     });
 
-    if (data.user?.user_type !== "admin") {
+    if ((data.user?.userType || data.user?.user_type) !== "admin") {
       throw new Error("This account is not an admin account.");
     }
 
@@ -895,8 +921,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // update navbar profile when state present
   if (adminState.user) {
     try {
-      const name = adminState.user.first_name ? `${adminState.user.first_name} ${adminState.user.last_name || ''}`.trim() : (adminState.user.email || 'Admin');
-      if (navAdminName) navAdminName.textContent = name;
+      const name = getAdminDisplayName(adminState.user);
+      if (navAdminName) navAdminName.textContent = getAdminHeaderLabel(adminState.user);
       if (menuName) menuName.textContent = name;
       if (navAdminEmail) navAdminEmail.textContent = adminState.user.email || '';
       if (menuEmail) menuEmail.textContent = adminState.user.email || '';

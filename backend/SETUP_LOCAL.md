@@ -33,8 +33,9 @@ DB_PASSWORD=yourpassword
 DB_NAME=certicheck
 JWT_SECRET=your_secret_here
 ADMIN_EMAIL=admin@certicheck.com
-ADMIN_PASSWORD=change-me-in-production
 ```
+
+The backend seeds three admin logins on first authentication: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. All use the default password `password`.
 
 ## 4. Initialize the database schema
 
