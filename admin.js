@@ -10,6 +10,38 @@ const API_BASE_URL = window.CERTICHECK_API_BASE_URL
   ? window.CERTICHECK_API_BASE_URL.replace(/\/api\/?$/, "")
   : localApiOrigin || DEFAULT_API_BASE_URL;
 const apiFetch = (url, options = {}) => fetch(url, { ...options, credentials: "include" });
+
+async function withButtonLoading(button, asyncFn, loadingText = 'Please wait...') {
+  if (!button || button.dataset.loading === '1') return;
+
+  const originalText = button.textContent;
+  const wasDisabled = button.disabled;
+  const originalOpacity = button.style.opacity;
+  button.dataset.loading = '1';
+  button.disabled = true;
+  button.textContent = loadingText;
+  button.style.opacity = '0.7';
+
+  try {
+    await new Promise(resolve => {
+      let fallback;
+      const ready = () => {
+        clearTimeout(fallback);
+        resolve();
+      };
+      fallback = setTimeout(ready, 100);
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(ready);
+      else ready();
+    });
+    return await asyncFn();
+  } finally {
+    button.dataset.loading = '0';
+    button.disabled = wasDisabled;
+    button.textContent = originalText;
+    button.style.opacity = originalOpacity;
+  }
+}
+
 const ADMIN_SESSION_KEY = "certicheck_admin_logged_in";
 const ADMIN_TOKEN_KEY = "certicheck_admin_token";
 const ADMIN_USER_KEY = "certicheck_admin_user";
@@ -606,38 +638,30 @@ async function handleBulkAction(action, button) {
     return;
   }
 
-  const originalText = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = `${action === 'approve' ? 'Approving' : 'Rejecting'} ${selected.length}...`;
-  }
-  try {
-    let emailFailures = 0;
-    let pendingEmailCount = 0;
-    for (const id of selected) {
-      const result = await requestJson(`/applications/${id}/${action === 'approve' ? 'approve' : 'reject'}`, { method: 'PUT' });
-      if (result.notification?.emailPending) pendingEmailCount += 1;
-      else if (result.notification?.emailSent === false) emailFailures += 1;
+  await withButtonLoading(button, async () => {
+    try {
+      let emailFailures = 0;
+      let pendingEmailCount = 0;
+      for (const id of selected) {
+        const result = await requestJson(`/applications/${id}/${action === 'approve' ? 'approve' : 'reject'}`, { method: 'PUT' });
+        if (result.notification?.emailPending) pendingEmailCount += 1;
+        else if (result.notification?.emailSent === false) emailFailures += 1;
+      }
+      const actionMessage = `${selected.length} application${selected.length > 1 ? 's were' : ' was'} ${action === 'approve' ? 'approved' : 'rejected'}.`;
+      showAdminToast(
+        emailFailures
+          ? `${actionMessage} Email notification failed for ${emailFailures} applicant${emailFailures > 1 ? 's' : ''}.`
+          : pendingEmailCount
+            ? `${actionMessage} ${pendingEmailCount} notification email${pendingEmailCount > 1 ? 's are' : ' is'} being sent.`
+            : actionMessage,
+        emailFailures ? 'danger' : 'success'
+      );
+      void loadAdminDashboard();
+    } catch (err) {
+      if (err.status === 401) return;
+      showAdminToast(err.message || 'Bulk action failed.', 'danger');
     }
-    const actionMessage = `${selected.length} application${selected.length > 1 ? 's were' : ' was'} ${action === 'approve' ? 'approved' : 'rejected'}.`;
-    showAdminToast(
-      emailFailures
-        ? `${actionMessage} Email notification failed for ${emailFailures} applicant${emailFailures > 1 ? 's' : ''}.`
-        : pendingEmailCount
-          ? `${actionMessage} ${pendingEmailCount} notification email${pendingEmailCount > 1 ? 's are' : ' is'} being sent.`
-          : actionMessage,
-      emailFailures ? 'danger' : 'success'
-    );
-    void loadAdminDashboard();
-  } catch (err) {
-    if (err.status === 401) return;
-    showAdminToast(err.message || 'Bulk action failed.', 'danger');
-  } finally {
-    if (button?.isConnected) {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
-  }
+  }, `${action === 'approve' ? 'Approving' : 'Rejecting'} ${selected.length}...`);
 }
 
 function renderAdminDashboard() {
@@ -826,61 +850,45 @@ async function handleCreateAccountForApplication(id, button) {
 }
 
 async function handleApplicationAction(action, id, button) {
-  const originalText = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = action === 'approve' ? 'Approving...' : 'Rejecting...';
-  }
-  try {
-    const endpoint = action === "approve" ? `/applications/${id}/approve` : `/applications/${id}/reject`;
-    const result = await requestJson(endpoint, { method: "PUT" });
-    if (result.success !== true) throw new Error(result.error || 'The application update was not confirmed.');
-    const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application revoked and moved to revoked queue.';
-    showAdminToast(
-      result.notification?.emailPending
-        ? `${actionMessage} The notification email is being sent.`
-        : result.notification?.emailSent === false
-          ? `${actionMessage} Email notification was not delivered.`
-          : actionMessage,
-      result.notification?.emailSent === false && !result.notification?.emailPending
-        ? 'danger'
-        : action === 'approve' ? 'success' : 'danger'
-    );
-    void loadAdminDashboard();
-    return true;
-  } catch (err) {
-    if (err.status === 401) return false;
-    showAdminToast(`Could not ${action} the application: ${err.message}`, 'danger');
-    return false;
-  } finally {
-    if (button?.isConnected) {
-      button.disabled = false;
-      button.textContent = originalText;
+  return withButtonLoading(button, async () => {
+    try {
+      const endpoint = action === "approve" ? `/applications/${id}/approve` : `/applications/${id}/reject`;
+      const result = await requestJson(endpoint, { method: "PUT" });
+      if (result.success !== true) throw new Error(result.error || 'The application update was not confirmed.');
+      const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application revoked and moved to revoked queue.';
+      showAdminToast(
+        result.notification?.emailPending
+          ? `${actionMessage} The notification email is being sent.`
+          : result.notification?.emailSent === false
+            ? `${actionMessage} Email notification was not delivered.`
+            : actionMessage,
+        result.notification?.emailSent === false && !result.notification?.emailPending
+          ? 'danger'
+          : action === 'approve' ? 'success' : 'danger'
+      );
+      void loadAdminDashboard();
+      return true;
+    } catch (err) {
+      if (err.status === 401) return false;
+      showAdminToast(`Could not ${action} the application: ${err.message}`, 'danger');
+      return false;
     }
-  }
+  }, action === 'approve' ? 'Approving...' : 'Rejecting...');
 }
 
 async function handleRevokeAction(id, button) {
-  const originalText = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = 'Revoking...';
-  }
-  try {
-    await requestJson(`/verify/${id}/revoke`, { method: "PUT" });
-    await loadAdminDashboard();
-    showAdminToast('Certificate revoked.', 'success');
-    return true;
-  } catch (err) {
-    if (err.status === 401) return false;
-    showAdminToast(`Could not revoke the certificate: ${err.message}`, 'danger');
-    return false;
-  } finally {
-    if (button?.isConnected) {
-      button.disabled = false;
-      button.textContent = originalText;
+  return withButtonLoading(button, async () => {
+    try {
+      await requestJson(`/verify/${id}/revoke`, { method: "PUT" });
+      await loadAdminDashboard();
+      showAdminToast('Certificate revoked.', 'success');
+      return true;
+    } catch (err) {
+      if (err.status === 401) return false;
+      showAdminToast(`Could not revoke the certificate: ${err.message}`, 'danger');
+      return false;
     }
-  }
+  }, 'Revoking...');
 }
 
 async function loadAdminDashboard() {
@@ -973,30 +981,33 @@ async function loginAdmin(event) {
     return;
   }
 
-  try {
-    const data = await requestJson("/auth/admin/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password })
-    });
+  const loginButton = event.submitter || event.currentTarget.querySelector('[type="submit"]');
+  await withButtonLoading(loginButton, async () => {
+    try {
+      const data = await requestJson("/auth/admin/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password })
+      });
 
-    if ((data.user?.userType || data.user?.user_type) !== "admin") {
-      throw new Error("This account is not an admin account.");
-    }
+      if ((data.user?.userType || data.user?.user_type) !== "admin") {
+        throw new Error("This account is not an admin account.");
+      }
 
-    adminState.token = data.token;
-    adminState.user = data.user;
-    // store admin token separately from regular user token
-    localStorage.setItem(ADMIN_TOKEN_KEY, data.token);
-    localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
-    setAdminState(true, data.user);
-  } catch (err) {
-    // If backend is unreachable or login fails, provide clearer feedback.
-    if (err.message && err.message.toLowerCase().includes('failed to fetch')) {
-      showAdminError('Unable to reach backend API. Ensure the backend is running at the expected API URL.');
-    } else {
-      showAdminError(err.message || 'Incorrect email or password');
+      adminState.token = data.token;
+      adminState.user = data.user;
+      // store admin token separately from regular user token
+      localStorage.setItem(ADMIN_TOKEN_KEY, data.token);
+      localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
+      setAdminState(true, data.user);
+    } catch (err) {
+      // If backend is unreachable or login fails, provide clearer feedback.
+      if (err.message && err.message.toLowerCase().includes('failed to fetch')) {
+        showAdminError('Unable to reach backend API. Ensure the backend is running at the expected API URL.');
+      } else {
+        showAdminError(err.message || 'Incorrect email or password');
+      }
     }
-  }
+  }, 'Signing in...');
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -1189,31 +1200,37 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById('adminForgotPasswordForm')?.addEventListener('submit', async event => {
     event.preventDefault();
     const email = document.getElementById('adminResetEmail').value.trim();
-    try {
-      const data = await requestJson('/auth/forgot-password', {
-        method: 'POST',
-        body: JSON.stringify({ email })
-      });
-      forgotPasswordMessage.textContent = data.message || 'If the admin account exists, a reset code was sent.';
-    } catch (err) {
-      forgotPasswordMessage.textContent = err.message || 'Unable to send a reset code.';
-    }
+    const button = event.submitter || event.currentTarget.querySelector('[type="submit"]');
+    await withButtonLoading(button, async () => {
+      try {
+        const data = await requestJson('/auth/forgot-password', {
+          method: 'POST',
+          body: JSON.stringify({ email })
+        });
+        forgotPasswordMessage.textContent = data.message || 'If the admin account exists, a reset code was sent.';
+      } catch (err) {
+        forgotPasswordMessage.textContent = err.message || 'Unable to send a reset code.';
+      }
+    }, 'Sending code...');
   });
   document.getElementById('adminResetPasswordForm')?.addEventListener('submit', async event => {
     event.preventDefault();
     const email = document.getElementById('adminResetEmail').value.trim();
     const otp = document.getElementById('adminResetOtp').value.trim();
     const newPassword = document.getElementById('adminResetNewPassword').value;
-    try {
-      const data = await requestJson('/auth/reset-password', {
-        method: 'POST',
-        body: JSON.stringify({ email, otp, newPassword })
-      });
-      forgotPasswordMessage.textContent = data.message || 'Password reset successfully.';
-      showAdminToast('Password reset. Sign in with your new password.', 'success');
-    } catch (err) {
-      forgotPasswordMessage.textContent = err.message || 'Unable to reset password.';
-    }
+    const button = event.submitter || event.currentTarget.querySelector('[type="submit"]');
+    await withButtonLoading(button, async () => {
+      try {
+        const data = await requestJson('/auth/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({ email, otp, newPassword })
+        });
+        forgotPasswordMessage.textContent = data.message || 'Password reset successfully.';
+        showAdminToast('Password reset. Sign in with your new password.', 'success');
+      } catch (err) {
+        forgotPasswordMessage.textContent = err.message || 'Unable to reset password.';
+      }
+    }, 'Verifying...');
   });
 
   // update navbar profile when state present

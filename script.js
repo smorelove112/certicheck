@@ -97,6 +97,37 @@ const API_BASE_URL = window.CERTICHECK_API_BASE_URL ||
 const CERTIFICATE_PROGRAM_ID = '4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob';
 let anchorLoading;
 
+async function withButtonLoading(button, asyncFn, loadingText = 'Please wait...') {
+  if (!button || button.dataset.loading === '1') return;
+
+  const originalText = button.textContent;
+  const wasDisabled = button.disabled;
+  const originalOpacity = button.style.opacity;
+  button.dataset.loading = '1';
+  button.disabled = true;
+  button.textContent = loadingText;
+  button.style.opacity = '0.7';
+
+  try {
+    await new Promise(resolve => {
+      let fallback;
+      const ready = () => {
+        clearTimeout(fallback);
+        resolve();
+      };
+      fallback = setTimeout(ready, 100);
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(ready);
+      else ready();
+    });
+    return await asyncFn();
+  } finally {
+    button.dataset.loading = '0';
+    button.disabled = wasDisabled;
+    button.textContent = originalText;
+    button.style.opacity = originalOpacity;
+  }
+}
+
 function loadAnchor() {
   if (window.anchor) return Promise.resolve(window.anchor);
   if (!anchorLoading) {
@@ -1571,6 +1602,7 @@ function renderRoleLandingHome() {
         const reason = window.prompt('Enter a reason for revoking this certificate:', 'Certificate withdrawn or invalid');
         if (reason === null) return;
 
+        await withButtonLoading(button, async () => {
         const token = getAuthToken();
         try {
           if (!token || !isVerifiedIssuer()) {
@@ -1605,6 +1637,7 @@ function renderRoleLandingHome() {
         } catch (error) {
           alert(error.message || 'Unable to revoke certificate.');
         }
+        }, 'Revoking...');
       });
     });
 
@@ -1657,13 +1690,15 @@ function renderRoleLandingHome() {
         notice.style.display = 'block';
         result.innerHTML = '';
 
-        try {
-          const attachmentFile = document.getElementById('issuerCertificateAttachmentUpload')?.files?.[0] || null;
-          if (attachmentFile && attachmentFile.size > MAX_CERTIFICATE_ATTACHMENT_BYTES) {
-            throw new Error('Supporting files must be 4 MB or smaller.');
-          }
-          const attachmentData = await readFileAsDataUrl(attachmentFile);
-          const certificateId = `CERT-${institution.replace(/\s+/g, '').substring(0, 4).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+        const submitButton = event.submitter || issuerDashboardForm.querySelector('[type="submit"]');
+        await withButtonLoading(submitButton, async () => {
+          try {
+            const attachmentFile = document.getElementById('issuerCertificateAttachmentUpload')?.files?.[0] || null;
+            if (attachmentFile && attachmentFile.size > MAX_CERTIFICATE_ATTACHMENT_BYTES) {
+              throw new Error('Supporting files must be 4 MB or smaller.');
+            }
+            const attachmentData = await readFileAsDataUrl(attachmentFile);
+            const certificateId = `CERT-${institution.replace(/\s+/g, '').substring(0, 4).toUpperCase()}-${Date.now().toString().slice(-6)}`;
           const metadata = {
             type: 'Auto-generated certificate',
             documentType: certificateType,
@@ -1686,17 +1721,17 @@ function renderRoleLandingHome() {
             }
           };
 
-          const payload = {
-            certificateId,
-            holderName,
-            holderEmail,
-            holderWallet,
-            certificateType,
-            issuerName: institution,
-            issuerWallet: connectedWallet || '',
-            metadata,
-            onChain: true
-          };
+            const payload = {
+              certificateId,
+              holderName,
+              holderEmail,
+              holderWallet,
+              certificateType,
+              issuerName: institution,
+              issuerWallet: connectedWallet || '',
+              metadata,
+              onChain: true
+            };
 
           if (!connectedWallet) throw new Error('Connect the approved issuer wallet before issuing on-chain.');
           const data = await issueCertificateWithPhantomWallet(payload, token);
@@ -1735,13 +1770,14 @@ function renderRoleLandingHome() {
             notice.textContent = `Certificate issued. ${refreshError.message || 'The certificate list could not be refreshed.'}`;
             notice.style.display = 'block';
           }
-        } catch (error) {
-          notice.textContent = error.message || 'Issuance failed.';
-          notice.style.display = 'block';
-          result.innerHTML = `
-            <div class="alert alert-error"><strong>Issuance failed.</strong><br/>${error.message || 'Please try again.'}</div>
-          `;
-        }
+          } catch (error) {
+            notice.textContent = error.message || 'Issuance failed.';
+            notice.style.display = 'block';
+            result.innerHTML = `
+              <div class="alert alert-error"><strong>Issuance failed.</strong><br/>${error.message || 'Please try again.'}</div>
+            `;
+          }
+        }, 'Issuing...');
       });
     }
 
@@ -1756,25 +1792,27 @@ function renderRoleLandingHome() {
         }
 
         issuerVerifyResult.innerHTML = '<div class="alert alert-info">Checking certificate status...</div>';
-        try {
-          const response = await fetch(`${API_BASE_URL}/certificates/lookup/${encodeURIComponent(certId)}`);
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || 'Certificate not found');
+        await withButtonLoading(issuerVerifyCertBtn, async () => {
+          try {
+            const response = await fetch(`${API_BASE_URL}/certificates/lookup/${encodeURIComponent(certId)}`);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Certificate not found');
 
-          const certificate = data.certificate || {};
-          const status = (certificate.verification_status || certificate.status || 'valid').toLowerCase();
-          const badgeClass = status === 'revoked' ? 'alert-error' : 'alert-success';
-          issuerVerifyResult.innerHTML = `
-            <div class="${badgeClass}">
-              <strong>Status:</strong> ${status === 'revoked' ? 'Revoked' : 'Valid'}<br/>
-              <strong>Certificate:</strong> ${certificate.certificate_id || certId}<br/>
-              <strong>Holder:</strong> ${certificate.holderName || certificate.holder_name || 'Unknown'}<br/>
-              <strong>Issuer:</strong> ${certificate.issuerName || certificate.issuer_name || institution}
-            </div>
-          `;
-        } catch (error) {
-          issuerVerifyResult.innerHTML = `<div class="alert alert-error">${error.message || 'Verification failed.'}</div>`;
-        }
+            const certificate = data.certificate || {};
+            const status = (certificate.verification_status || certificate.status || 'valid').toLowerCase();
+            const badgeClass = status === 'revoked' ? 'alert-error' : 'alert-success';
+            issuerVerifyResult.innerHTML = `
+              <div class="${badgeClass}">
+                <strong>Status:</strong> ${status === 'revoked' ? 'Revoked' : 'Valid'}<br/>
+                <strong>Certificate:</strong> ${certificate.certificate_id || certId}<br/>
+                <strong>Holder:</strong> ${certificate.holderName || certificate.holder_name || 'Unknown'}<br/>
+                <strong>Issuer:</strong> ${certificate.issuerName || certificate.issuer_name || institution}
+              </div>
+            `;
+          } catch (error) {
+            issuerVerifyResult.innerHTML = `<div class="alert alert-error">${error.message || 'Verification failed.'}</div>`;
+          }
+        }, 'Checking...');
       });
     }
   }
@@ -1964,7 +2002,7 @@ async function renderVerifyResult(response, certificateId = '') {
   VerificationResultModal({ response, certificateId });
 }
 
-async function verifyCertificate() {
+async function verifyCertificate(button = document.getElementById("verifyBtn")) {
   const input = document.getElementById("certIdInput");
   const certificateId = input?.value?.trim();
   const resultEl = document.getElementById("verifyResult");
@@ -1980,20 +2018,22 @@ async function verifyCertificate() {
     resultEl.textContent = '';
   }
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/certificates/lookup/${encodeURIComponent(certificateId)}`);
-    const data = await response.json();
-    if (!response.ok) {
-      await renderVerifyResult({ success: false, status: data?.status || 'not_found', error: data?.error || 'Not Found' }, certificateId);
-      return;
+  return withButtonLoading(button, async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/certificates/lookup/${encodeURIComponent(certificateId)}`);
+      const data = await response.json();
+      if (!response.ok) {
+        await renderVerifyResult({ success: false, status: data?.status || 'not_found', error: data?.error || 'Not Found' }, certificateId);
+        return;
+      }
+      await renderVerifyResult(data, certificateId);
+    } catch (err) {
+      await renderVerifyResult(
+        { success: false, status: 'unavailable', error: 'Certificate verification is temporarily unavailable. Please try again.' },
+        certificateId
+      );
     }
-    await renderVerifyResult(data, certificateId);
-  } catch (err) {
-    await renderVerifyResult(
-      { success: false, status: 'unavailable', error: 'Certificate verification is temporarily unavailable. Please try again.' },
-      certificateId
-    );
-  }
+  }, 'Checking...');
 }
 
 const REMEMBERED_FIELD_PREFIX = 'certicheck_field_';
@@ -2058,7 +2098,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initForgotPasswordForm();
   initAuthPageForms(currentPage);
 
-  document.getElementById("verifyBtn")?.addEventListener("click", verifyCertificate);
   // Demo code chips: populate input but do not auto-submit
   document.querySelectorAll(".code-inline[data-demo]").forEach(code => {
     code.addEventListener("click", () => {
@@ -2074,9 +2113,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // Prefer form submission (Enter key) for verification
   const verifyForm = document.getElementById('verifyForm');
   if (verifyForm) {
-    verifyForm.addEventListener('submit', (e) => { e.preventDefault(); verifyCertificate(); });
+    verifyForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      verifyCertificate(document.getElementById("verifyBtn"));
+    });
   } else {
-    document.getElementById("verifyBtn")?.addEventListener("click", verifyCertificate);
+    document.getElementById("verifyBtn")?.addEventListener("click", event => {
+      event.preventDefault();
+      verifyCertificate(event.currentTarget);
+    });
   }
   
   // Home CTAs set signup type
@@ -2494,6 +2539,7 @@ async function initIssuerDashboard() {
         if (!certId) return;
         if (!confirm(`Revoke certificate ${certId}? This action is recorded.`)) return;
 
+        await withButtonLoading(btn, async () => {
         const token = getAuthToken();
         try {
           if (!token || !isVerifiedIssuer()) throw new Error('Issuer approval required');
@@ -2514,6 +2560,7 @@ async function initIssuerDashboard() {
         } catch (err) {
           alert('Unable to revoke certificate: ' + (err.message || err));
         }
+        }, 'Revoking...');
       });
     });
   }
@@ -2582,10 +2629,8 @@ async function initIssuerDashboard() {
       return;
     }
 
-    button.disabled = true;
-    button.textContent = "Issuing...";
-
-    try {
+    await withButtonLoading(button, async () => {
+      try {
       const attachmentData = await readFileAsDataUrl(attachmentFile);
       payload.metadata = {
         ...payload.metadata,
@@ -2666,10 +2711,8 @@ async function initIssuerDashboard() {
           <strong>Issuance failed.</strong><br/>
           <div style="margin-top:8px;font-size:13px">${message}</div>
         </div>`;
-    } finally {
-      button.disabled = false;
-      button.textContent = "Issue Certificate";
-    }
+      }
+    }, "Issuing...");
   };
 }
 
@@ -2867,33 +2910,30 @@ function initSignupForm() {
       return;
     }
 
-    btn.disabled = true;
-    btn.textContent = "Sending OTP...";
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/send-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Unable to send verification code');
+    await withButtonLoading(btn, async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/send-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Unable to send verification code');
 
-      pendingSignupData = {
-        email,
-        firstName,
-        lastName,
-        userType: desiredSignupType || 'issuer'
-      };
-      document.getElementById('otpEmailDesc').textContent = `Enter the 6-digit code sent to ${email}.`;
-      document.getElementById('otpCode').value = '';
-      navigate('verify-otp');
-    } catch (err) {
-      errorEl.textContent = err.message || 'Unable to send verification code';
-      errorEl.style.display = 'block';
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Send OTP';
-    }
+        pendingSignupData = {
+          email,
+          firstName,
+          lastName,
+          userType: desiredSignupType || 'issuer'
+        };
+        document.getElementById('otpEmailDesc').textContent = `Enter the 6-digit code sent to ${email}.`;
+        document.getElementById('otpCode').value = '';
+        navigate('verify-otp');
+      } catch (err) {
+        errorEl.textContent = err.message || 'Unable to send verification code';
+        errorEl.style.display = 'block';
+      }
+    }, 'Sending OTP...');
   });
 }
 
@@ -2920,89 +2960,88 @@ function initOTPVerificationForm() {
       return;
     }
 
-    btn.disabled = true;
-    btn.textContent = 'Verifying...';
-    try {
-      const verifyResponse = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: pendingSignupData.email, otp })
-      });
-      const verifyData = await verifyResponse.json().catch(() => ({}));
-      if (!verifyResponse.ok) throw new Error(verifyData.error || 'Invalid or expired verification code');
+    await withButtonLoading(btn, async () => {
+      try {
+        const verifyResponse = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: pendingSignupData.email, otp })
+        });
+        const verifyData = await verifyResponse.json().catch(() => ({}));
+        if (!verifyResponse.ok) throw new Error(verifyData.error || 'Invalid or expired verification code');
 
-      const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: pendingSignupData.email,
-          password: 'password',
-          firstName: pendingSignupData.firstName,
-          lastName: pendingSignupData.lastName,
-          userType: pendingSignupData.userType,
-          otp
-        })
-      });
-      const registerData = await registerResponse.json().catch(() => ({}));
-      if (!registerResponse.ok) throw new Error(registerData.error || 'Registration failed');
-      const welcomeEmailNotice = registerData.notification?.emailSent === false
-        ? ' Your account was created, but the welcome email could not be delivered.'
-        : '';
+        const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: pendingSignupData.email,
+            password: 'password',
+            firstName: pendingSignupData.firstName,
+            lastName: pendingSignupData.lastName,
+            userType: pendingSignupData.userType,
+            otp
+          })
+        });
+        const registerData = await registerResponse.json().catch(() => ({}));
+        if (!registerResponse.ok) throw new Error(registerData.error || 'Registration failed');
+        const welcomeEmailNotice = registerData.notification?.emailSent === false
+          ? ' Your account was created, but the welcome email could not be delivered.'
+          : '';
 
-      const draft = loadPendingApplicationDraft();
-      let applicationNotice = welcomeEmailNotice;
-      if (draft) {
-        try {
-          draft.contactEmail = pendingSignupData.email;
-          const applicationResponse = await fetch(`${API_BASE_URL}/applications/submit`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(draft)
-          });
-          const applicationData = await applicationResponse.json().catch(() => ({}));
-          if (applicationResponse.ok) {
-            clearPendingApplicationDraft();
-          } else {
-            applicationNotice = ` Your application was not submitted: ${applicationData.error || 'Please submit it again.'}`;
+        const draft = loadPendingApplicationDraft();
+        let applicationNotice = welcomeEmailNotice;
+        if (draft) {
+          try {
+            draft.contactEmail = pendingSignupData.email;
+            const applicationResponse = await fetch(`${API_BASE_URL}/applications/submit`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(draft)
+            });
+            const applicationData = await applicationResponse.json().catch(() => ({}));
+            if (applicationResponse.ok) {
+              clearPendingApplicationDraft();
+            } else {
+              applicationNotice = ` Your application was not submitted: ${applicationData.error || 'Please submit it again.'}`;
+            }
+          } catch (applicationError) {
+            applicationNotice = ` Your application could not be submitted: ${applicationError.message || 'Please submit it again.'}`;
           }
-        } catch (applicationError) {
-          applicationNotice = ` Your application could not be submitted: ${applicationError.message || 'Please submit it again.'}`;
         }
-      }
 
-      pendingSignupData = null;
-      navigate('login');
-      showLoginNotice('Account created', `${registerData.message || 'Your account is pending admin approval. You can sign in after it has been approved.'}${applicationNotice}`);
-    } catch (err) {
-      errorEl.textContent = err.message || 'Unable to complete registration';
-      errorEl.style.display = 'block';
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Verify & Create Account';
-    }
+        pendingSignupData = null;
+        navigate('login');
+        showLoginNotice('Account created', `${registerData.message || 'Your account is pending admin approval. You can sign in after it has been approved.'}${applicationNotice}`);
+      } catch (err) {
+        errorEl.textContent = err.message || 'Unable to complete registration';
+        errorEl.style.display = 'block';
+      }
+    }, 'Verifying...');
   });
 
   resendBtn?.addEventListener('click', async () => {
     if (!pendingSignupData || resendBtn.disabled) return;
-    resendBtn.disabled = true;
-    resendBtn.textContent = 'Resending...';
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/resend-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: pendingSignupData.email })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Unable to resend verification code');
-      otpInput.value = '';
-      errorEl.style.display = 'none';
+    const sent = await withButtonLoading(resendBtn, async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/resend-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: pendingSignupData.email })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Unable to resend verification code');
+        otpInput.value = '';
+        errorEl.style.display = 'none';
+        return true;
+      } catch (err) {
+        errorEl.textContent = err.message || 'Unable to resend verification code';
+        errorEl.style.display = 'block';
+        return false;
+      }
+    }, 'Resending...');
+    if (sent) {
       resendBtn.textContent = 'Code sent';
-    } catch (err) {
-      errorEl.textContent = err.message || 'Unable to resend verification code';
-      errorEl.style.display = 'block';
-    } finally {
       setTimeout(() => {
-        resendBtn.disabled = false;
         resendBtn.textContent = 'Resend';
       }, 3000);
     }
@@ -3059,60 +3098,56 @@ function initLoginForm() {
       return;
     }
 
-    try {
-      btn.disabled = true;
-      btn.textContent = "Signing in...";
-
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.token) {
-          if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
-          saveAuthSession(data.token, data.user);
-          if (data.user.must_change_password) {
-            navigate('change-password');
-            return;
-          }
-          return navigate(data.user.user_type === 'admin' ? 'home' : data.user.user_type === 'issuer' ? 'home' : 'holder');
-        }
-      }
-
-      // Use status-specific dialog messages only when the server provides a known code.
-      let errMsg = 'Incorrect email or password';
-      let errCode = '';
+    await withButtonLoading(btn, async () => {
       try {
-        const errData = await response.json();
-        if (errData && errData.error) errMsg = errData.error;
-        if (errData && errData.code) errCode = errData.code;
-      } catch (e) {}
-      const noticeTitles = {
-        EMAIL_NOT_REGISTERED: 'Email not registered',
-        APPLICATION_PENDING: 'Application pending',
-        APPLICATION_REJECTED: 'Application rejected',
-        APPLICATION_APPROVED: 'Application approved',
-        USER_PENDING_APPROVAL: 'Account pending approval'
-      };
-      if (noticeTitles[errCode] && !showLoginNotice(noticeTitles[errCode], errMsg)) {
-        errorEl.textContent = errMsg;
-        errorEl.style.display = 'block';
-      } else if (!noticeTitles[errCode]) {
-        errorEl.textContent = errMsg;
-        errorEl.style.display = 'block';
-      }
-      if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
+        const response = await fetch(`${API_BASE_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
 
-    } catch (err) {
-      console.warn('Login request failed (network):', err.message || err);
-      showLoginNotice('Unable to sign in', 'The Certicheck login service could not be reached. Check your connection and try again.');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Sign In";
-    }
+        if (response.ok) {
+          const data = await response.json();
+          if (data.token) {
+            if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
+            saveAuthSession(data.token, data.user);
+            if (data.user.must_change_password) {
+              navigate('change-password');
+              return;
+            }
+            return navigate(data.user.user_type === 'admin' ? 'home' : data.user.user_type === 'issuer' ? 'home' : 'holder');
+          }
+        }
+
+        // Use status-specific dialog messages only when the server provides a known code.
+        let errMsg = 'Incorrect email or password';
+        let errCode = '';
+        try {
+          const errData = await response.json();
+          if (errData && errData.error) errMsg = errData.error;
+          if (errData && errData.code) errCode = errData.code;
+        } catch (e) {}
+        const noticeTitles = {
+          EMAIL_NOT_REGISTERED: 'Email not registered',
+          APPLICATION_PENDING: 'Application pending',
+          APPLICATION_REJECTED: 'Application rejected',
+          APPLICATION_APPROVED: 'Application approved',
+          USER_PENDING_APPROVAL: 'Account pending approval'
+        };
+        if (noticeTitles[errCode] && !showLoginNotice(noticeTitles[errCode], errMsg)) {
+          errorEl.textContent = errMsg;
+          errorEl.style.display = 'block';
+        } else if (!noticeTitles[errCode]) {
+          errorEl.textContent = errMsg;
+          errorEl.style.display = 'block';
+        }
+        if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
+
+      } catch (err) {
+        console.warn('Login request failed (network):', err.message || err);
+        showLoginNotice('Unable to sign in', 'The Certicheck login service could not be reached. Check your connection and try again.');
+      }
+    }, 'Signing in...');
   });
 }
 
@@ -3138,27 +3173,24 @@ function initForgotPasswordForm() {
       return;
     }
 
-    try {
-      btn.disabled = true;
-      btn.textContent = "Sending reset email...";
-
-      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Unable to send reset OTP');
-      pendingForgotEmail = email;
-      sessionStorage.setItem('certicheck_pending_forgot_email', email);
-      beginForgotOtpResendCooldown();
-      navigate('verify-reset-otp');
-    } catch (err) {
-      errorEl.textContent = err.message || "Unable to send reset OTP. Please try again.";
-      errorEl.style.display = "block";
-      btn.disabled = false;
-      btn.textContent = "Send Reset Email";
-    }
+    await withButtonLoading(btn, async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Unable to send reset OTP');
+        pendingForgotEmail = email;
+        sessionStorage.setItem('certicheck_pending_forgot_email', email);
+        beginForgotOtpResendCooldown();
+        navigate('verify-reset-otp');
+      } catch (err) {
+        errorEl.textContent = err.message || "Unable to send reset OTP. Please try again.";
+        errorEl.style.display = "block";
+      }
+    }, 'Sending code...');
   });
 }
 
@@ -3224,24 +3256,26 @@ function initVerifyResetOTPForm() {
     renderForgotOtpResendCooldown(resendBtn);
     resendBtn.addEventListener("click", async () => {
       if (resendBtn.disabled || !pendingForgotEmail) return;
-      resendBtn.disabled = true;
-      resendBtn.textContent = "Sending code...";
       if (resendStatus) resendStatus.textContent = "";
 
-      try {
-        const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: pendingForgotEmail })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Unable to resend reset code');
+      const sent = await withButtonLoading(resendBtn, async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: pendingForgotEmail })
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || 'Unable to resend reset code');
+          return true;
+        } catch (err) {
+          if (resendStatus) resendStatus.textContent = err.message || "Unable to resend code.";
+          return false;
+        }
+      }, 'Sending code...');
+      if (sent) {
         beginForgotOtpResendCooldown();
         if (resendStatus) resendStatus.textContent = "If your account exists, a new code has been sent.";
-      } catch (err) {
-        resendBtn.disabled = false;
-        resendBtn.textContent = "Resend code";
-        if (resendStatus) resendStatus.textContent = err.message || "Unable to resend code.";
       }
     });
   }
@@ -3276,11 +3310,9 @@ function initVerifyResetOTPForm() {
       return;
     }
 
-    try {
-      btn.disabled = true;
-      btn.textContent = "Resetting...";
-
-      const resetResponse = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+    await withButtonLoading(btn, async () => {
+      try {
+        const resetResponse = await fetch(`${API_BASE_URL}/auth/reset-password`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -3288,25 +3320,24 @@ function initVerifyResetOTPForm() {
             newPassword,
             otp
           })
-      });
-      const resetData = await resetResponse.json().catch(() => ({}));
-      if (!resetResponse.ok) throw new Error(resetData.error || 'Unable to reset password');
+        });
+        const resetData = await resetResponse.json().catch(() => ({}));
+        if (!resetResponse.ok) throw new Error(resetData.error || 'Unable to reset password');
 
-      pendingForgotEmail = null;
-      sessionStorage.removeItem('certicheck_pending_forgot_email');
-      sessionStorage.removeItem(FORGOT_OTP_RESEND_UNTIL_KEY);
-      if (forgotOtpResendTimer) {
-        clearInterval(forgotOtpResendTimer);
-        forgotOtpResendTimer = null;
-      }
-      navigate('login');
+        pendingForgotEmail = null;
+        sessionStorage.removeItem('certicheck_pending_forgot_email');
+        sessionStorage.removeItem(FORGOT_OTP_RESEND_UNTIL_KEY);
+        if (forgotOtpResendTimer) {
+          clearInterval(forgotOtpResendTimer);
+          forgotOtpResendTimer = null;
+        }
+        navigate('login');
       
-    } catch (err) {
-      errorEl.textContent = err.message || "Unable to reset password. Please try again.";
-      errorEl.style.display = "block";
-      btn.disabled = false;
-      btn.textContent = "Reset Password";
-    }
+      } catch (err) {
+        errorEl.textContent = err.message || "Unable to reset password. Please try again.";
+        errorEl.style.display = "block";
+      }
+    }, 'Verifying...');
   });
 }
 

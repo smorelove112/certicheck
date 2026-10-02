@@ -2838,3 +2838,29 @@ body.dark .powered-by-logo img {
 @media (max-width:900px) { #adminDashboard { height:660px; } }
 @media (max-width:540px) { #adminDashboard { height:800px; } }
 #navbar * { z-index: 201; }
+button, button[class*="btn-"], .btn, [data-page], .nav-item {
+  cursor: pointer;
+  transition: transform 0.1s ease, opacity 0.15s ease, color 0.2s ease,
+    background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+button:active:not(:disabled), button[class*="btn-"]:active:not(:disabled),
+.btn:active:not(:disabled), [data-page]:active, .nav-item:active {
+  transform: scale(0.97);
+}
+
+button:disabled, .btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button, button[class*="btn-"], .btn, [data-page], .nav-item {
+    transition: none;
+  }
+
+  button:active:not(:disabled), button[class*="btn-"]:active:not(:disabled),
+  .btn:active:not(:disabled), [data-page]:active, .nav-item:active {
+    transform: none;
+  }
+}

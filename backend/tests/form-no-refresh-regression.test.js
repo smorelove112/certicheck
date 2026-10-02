@@ -5,8 +5,10 @@ const path = require('node:path');
 
 const rootDir = path.resolve(__dirname, '..', '..');
 const indexHtml = fs.readFileSync(path.join(rootDir, 'index.html'), 'utf8');
+const adminHtml = fs.readFileSync(path.join(rootDir, 'admin.html'), 'utf8');
 const scriptJs = fs.readFileSync(path.join(rootDir, 'script.js'), 'utf8');
 const adminJs = fs.readFileSync(path.join(rootDir, 'admin.js'), 'utf8');
+const stylingCss = fs.readFileSync(path.join(rootDir, 'styling.css'), 'utf8');
 
 test('application form buttons do not submit the page', () => {
   assert.match(indexHtml, /<button type="button" class="btn-ghost" id="formBack"/);
@@ -63,7 +65,7 @@ test('failed application submissions show an error instead of a false success st
 test('static localhost previews use the deployed API instead of an unavailable localhost backend', () => {
   assert.match(scriptJs, /const localApiOrigin = \["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)\s*&& \["3000", "5000"\]\.includes\(window\.location\.port\)\s*\?\s*window\.location\.origin\s*:\s*null;/);
   assert.match(scriptJs, /"https:\/\/certicheck-backend-8hu3\.onrender\.com\/api"/);
-  assert.match(indexHtml, /script\.js\?v=20261002-application-api/);
+  assert.match(indexHtml, /script\.js\?v=20261002-instant-button-feedback/);
 });
 
 test('forgot-password OTP screen provides a resend control with a 40-second cooldown', () => {
@@ -81,9 +83,10 @@ test('login guidance explains the default password and required password change'
 test('admin dashboard avoids automatic refreshes and refreshes after admin actions', () => {
   assert.doesNotMatch(adminJs, /setInterval|startAdminDashboardPolling|stopAdminDashboardPolling/);
   assert.match(adminJs, /await handleApplicationAction\(action, id, button\)/);
-  assert.match(adminJs, /async function handleApplicationAction[\s\S]*?showAdminToast\(`Could not \$\{action\} the application: \$\{err\.message\}`,[\s\S]*?await loadAdminDashboard\(\);/);
+  assert.match(adminJs, /async function handleApplicationAction[\s\S]*?showAdminToast\(`Could not \$\{action\} the application: \$\{err\.message\}`/);
+  assert.match(adminJs, /async function handleApplicationAction[\s\S]*?void loadAdminDashboard\(\);/);
   assert.match(adminJs, /async function handleBulkAction[\s\S]*?showAdminToast\(err\.message \|\| 'Bulk action failed\.'/);
-  assert.match(adminJs, /async function handleBulkAction[\s\S]*?button\.textContent = `\$\{action === 'approve' \? 'Approving' : 'Rejecting'\} \$\{selected\.length\}\.\.\.`/);
+  assert.match(adminJs, /async function handleBulkAction[\s\S]*?withButtonLoading\(button,[\s\S]*?Approving/);
   assert.match(adminJs, /if \(enabled\)[\s\S]*?loadAdminDashboard\(\);/);
 });
 
@@ -106,4 +109,27 @@ test('admin action refresh avoids redundant application fetches and does not blo
   assert.match(adminJs, /if \(applicationListMissing \|\| applicationListTruncated\) \{/);
   assert.match(adminJs, /void loadAdminDashboard\(\);/);
   assert.match(adminJs, /notification\??\.emailPending/);
+});
+
+test('slow user actions show painted, duplicate-safe button loading feedback', () => {
+  assert.match(scriptJs, /async function withButtonLoading\(button, asyncFn, loadingText = 'Please wait\.\.\.'\)/);
+  assert.match(scriptJs, /button\.dataset\.loading = '1'[\s\S]*?requestAnimationFrame/);
+  assert.match(scriptJs, /withButtonLoading\(btn,[\s\S]*?Sending OTP\.\.\./);
+  assert.match(scriptJs, /withButtonLoading\(btn,[\s\S]*?Verifying\.\.\./);
+  assert.match(scriptJs, /withButtonLoading\(btn,[\s\S]*?Signing in\.\.\./);
+  assert.match(scriptJs, /withButtonLoading\(button,[\s\S]*?Issuing\.\.\./);
+  assert.match(scriptJs, /withButtonLoading\(button,[\s\S]*?Revoking\.\.\./);
+  assert.match(scriptJs, /verifyForm\.addEventListener\('submit',[\s\S]*?verifyCertificate\(document\.getElementById\("verifyBtn"\)\)/);
+  assert.doesNotMatch(scriptJs, /document\.getElementById\("verifyBtn"\)\?\.addEventListener\("click", verifyCertificate\)/);
+  assert.match(adminJs, /async function withButtonLoading\(button, asyncFn, loadingText = 'Please wait\.\.\.'\)/);
+  assert.match(adminJs, /loginButton[\s\S]*?withButtonLoading\(loginButton,[\s\S]*?Signing in\.\.\./);
+});
+
+test('shared buttons have fast press feedback and accessible disabled styling', () => {
+  assert.match(stylingCss, /button,\s*button\[class\*="btn-"\], \.btn, \[data-page\], \.nav-item\s*\{[\s\S]*?transition: transform 0\.1s ease, opacity 0\.15s ease/);
+  assert.match(stylingCss, /button:active:not\(:disabled\)[\s\S]*?transform: scale\(0\.97\)/);
+  assert.match(stylingCss, /button:disabled, \.btn:disabled\s*\{[\s\S]*?cursor: wait;[\s\S]*?opacity: 0\.7/);
+  assert.match(stylingCss, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(indexHtml, /styling\.css\?v=20261002-button-interaction/);
+  assert.match(adminHtml, /styling\.css\?v=20261002-button-interaction/);
 });
