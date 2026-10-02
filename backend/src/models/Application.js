@@ -72,7 +72,10 @@ class Application {
     }
 
     const result = await pool.query(
-      `SELECT * FROM pending_applications WHERE status = $1 LIMIT $2 OFFSET $3`,
+      `SELECT * FROM pending_applications
+       WHERE status = $1
+       ORDER BY reviewed_at DESC NULLS LAST, submitted_at DESC
+       LIMIT $2 OFFSET $3`,
       [status, limit, offset]
     );
     return result.rows;
@@ -173,7 +176,9 @@ class Application {
     }
 
     const result = await pool.query(
-      `SELECT * FROM pending_applications LIMIT $1 OFFSET $2`,
+      `SELECT * FROM pending_applications
+       ORDER BY submitted_at DESC NULLS LAST, id DESC
+       LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
     return result.rows;

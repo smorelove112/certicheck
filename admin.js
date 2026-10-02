@@ -49,6 +49,8 @@ let adminState = {
   user: null,
   stats: null,
   pendingApps: [],
+  approvedApps: [],
+  dashboardWarning: "",
   rejectedApps: [],
   checks: [],
   revoked: [],
@@ -727,9 +729,12 @@ function renderAdminDashboard() {
       </div>
     </div>
   `;
+  const dashboardWarning = adminState.dashboardWarning
+    ? `<div class="alert alert-danger" role="alert" style="margin-bottom:16px;">${escapeAdminHtml(adminState.dashboardWarning)}</div>`
+    : '';
 
   if (!reviewItems.length) {
-    list.innerHTML = toolbar + `<div class="admin-activity-scroll" role="region" aria-label="Admin activity list" tabindex="0">${renderEmpty("No matching applications found.")}</div>`;
+    list.innerHTML = dashboardWarning + toolbar + `<div class="admin-activity-scroll" role="region" aria-label="Admin activity list" tabindex="0">${renderEmpty("No matching applications found.")}</div>`;
     bindAdminReviewControls();
     return;
   }
@@ -762,7 +767,7 @@ function renderAdminDashboard() {
       </div>
     `;
   }).join('');
-  list.innerHTML = toolbar + `<div id="adminActivityItems" class="admin-activity-scroll" role="region" aria-label="Admin activity list" tabindex="0">${activityMarkup}</div>`;
+  list.innerHTML = dashboardWarning + toolbar + `<div id="adminActivityItems" class="admin-activity-scroll" role="region" aria-label="Admin activity list" tabindex="0">${activityMarkup}</div>`;
 
   bindAdminReviewControls();
 
@@ -839,16 +844,61 @@ async function loadAdminDashboard() {
 async function loadAdminDashboardData() {
   try {
     const dashboardData = await requestJson("/admin/dashboard");
+    let applicationLists = {
+      pending: getApplicationList({
+        applications: dashboardData.pendingApplications ?? dashboardData.pendingApps ?? dashboardData.pending
+      }),
+      approved: getApplicationList({
+        applications: dashboardData.approvedApplications ?? dashboardData.approvedApps ?? dashboardData.approved
+      }),
+      rejected: getApplicationList({
+        applications: dashboardData.rejectedApplications ?? dashboardData.rejectedApps ?? dashboardData.rejected
+      })
+    };
+    let dashboardWarning = "";
+
+    try {
+      const applicationsData = await requestJson("/applications?limit=200&offset=0");
+      const applications = getApplicationList(applicationsData);
+      if (applications.length) {
+        applicationLists = {
+          pending: applications.filter(app => app.status === "pending"),
+          approved: applications.filter(app => app.status === "approved"),
+          rejected: applications.filter(app => app.status === "rejected")
+        };
+      } else if (Object.values(applicationLists).some(apps => apps.length)) {
+        dashboardWarning = "The applications list endpoint returned no records; showing the dashboard's available application data.";
+      }
+    } catch (err) {
+      dashboardWarning = `Could not refresh the application list: ${err.message}`;
+    }
+
+    if (
+      applicationLists.approved.length < (Number(dashboardData.stats?.approvedApplications) || 0) &&
+      dashboardData.stats?.approvedApplications
+    ) {
+      dashboardWarning = `Showing ${applicationLists.approved.length} approved applications, while the dashboard reports ${dashboardData.stats.approvedApplications}.`;
+    }
+
+    if (!Array.isArray(dashboardData.approvedApplications) && !applicationLists.approved.length) {
+      try {
+        const approvedData = await requestJson("/applications/approved?limit=200&offset=0");
+        const approvedApps = getApplicationList(approvedData);
+        const approvedTotal = Number(approvedData.total) || approvedApps.length;
+        if (approvedApps.length) applicationLists.approved = approvedApps;
+        if (approvedTotal > approvedApps.length) {
+          dashboardWarning = `Showing the ${approvedApps.length} most recent approved applications out of ${approvedTotal}.`;
+        }
+      } catch (err) {
+        if (!dashboardWarning) dashboardWarning = `Approved applications could not be loaded: ${err.message}`;
+      }
+    }
+
     adminState.stats = dashboardData.stats || adminState.stats || null;
-    adminState.pendingApps = getApplicationList({
-      applications: dashboardData.pendingApplications ?? dashboardData.pendingApps ?? dashboardData.pending
-    });
-    adminState.rejectedApps = getApplicationList({
-      applications: dashboardData.rejectedApplications ?? dashboardData.rejectedApps ?? dashboardData.rejected
-    });
-    adminState.approvedApps = getApplicationList({
-      applications: dashboardData.approvedApplications ?? dashboardData.approvedApps ?? dashboardData.approved
-    });
+    adminState.dashboardWarning = dashboardWarning;
+    adminState.pendingApps = applicationLists.pending;
+    adminState.rejectedApps = applicationLists.rejected;
+    adminState.approvedApps = applicationLists.approved;
     adminState.checks = Array.isArray(dashboardData.history) ? dashboardData.history : [];
     adminState.revoked = Array.isArray(dashboardData.revoked) ? dashboardData.revoked : [];
     adminState.auditLog = Array.isArray(dashboardData.auditLog) ? dashboardData.auditLog : [];
@@ -860,6 +910,8 @@ async function loadAdminDashboardData() {
 
     renderAdminDashboard();
   } catch (err) {
+    adminState.dashboardWarning = `Dashboard data could not be loaded: ${err.message}`;
+    renderAdminDashboard();
     showAdminError(err.message);
   }
 }
