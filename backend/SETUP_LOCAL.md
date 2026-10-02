@@ -33,17 +33,11 @@ DB_PASSWORD=yourpassword
 DB_NAME=certicheck
 JWT_SECRET=your_secret_here
 ADMIN_EMAIL=admin@certicheck.com
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your-gmail@gmail.com
-# Set SMTP_PASS as a Render environment variable; never commit it.
-EMAIL_FROM=CertiCheck <your-gmail@gmail.com>
 ```
 
 The backend seeds three admin logins on first authentication: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. All use the default password `password`.
 
-Signup, login, and password reset accept valid email addresses from any domain. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, and `SMTP_PASS` in the environment, or use `EMAIL_USER` and `EMAIL_PASSWORD` for the Gmail service transport. Set `EMAIL_FROM` to the same mailbox used to authenticate with SMTP. Never store SMTP passwords in a tracked file or commit them. Configure SPF/DKIM with your provider; without SMTP, development mode prints OTPs to the backend console and production returns a configuration error.
+Signup and login accept syntactically valid email addresses from any domain. Email addresses are used as account identifiers and contact records; the application does not send mail or verify mailbox ownership. Newly approved issuer accounts must change the default password on first sign-in.
 
 ## 4. Initialize the database schema
 

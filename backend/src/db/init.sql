@@ -13,16 +13,13 @@ CREATE TABLE IF NOT EXISTS users (
   user_type VARCHAR(20) DEFAULT 'user' CHECK (user_type IN ('user', 'issuer', 'admin')),
   is_active BOOLEAN DEFAULT FALSE,
   must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
-  reset_otp_code VARCHAR(6),
-  reset_otp_expires_at TIMESTAMP,
-  reset_otp_attempts INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_code VARCHAR(6);
-ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_expires_at TIMESTAMP;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users DROP COLUMN IF EXISTS reset_otp_code;
+ALTER TABLE users DROP COLUMN IF EXISTS reset_otp_expires_at;
+ALTER TABLE users DROP COLUMN IF EXISTS reset_otp_attempts;
 CREATE INDEX IF NOT EXISTS idx_email ON users(email);
 
 -- ── INDIVIDUAL ADMIN PROFILES ────────────────────────────────────────────────
@@ -165,20 +162,8 @@ CREATE TABLE IF NOT EXISTS revoked_certificates (
   blockchain_transaction_id VARCHAR(255)
 );
 
--- ── OTP TABLE ─────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS otp_verification (
-  id SERIAL PRIMARY KEY,
-  email VARCHAR(255) NOT NULL,
-  otp_code VARCHAR(6) NOT NULL,
-  otp_type VARCHAR(20) CHECK (otp_type IN ('signup', 'forgot_password')) NOT NULL,
-  is_verified BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  expires_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP + INTERVAL '10 minutes',
-  verified_at TIMESTAMP,
-  attempts INTEGER DEFAULT 0,
-  max_attempts INTEGER DEFAULT 5
-);
-CREATE INDEX IF NOT EXISTS idx_email_otp ON otp_verification(email, otp_type);
+-- OTP-based email signup and password recovery have been removed.
+DROP TABLE IF EXISTS otp_verification;
 
 -- ── AUDIT LOG TABLE ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_log (

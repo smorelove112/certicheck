@@ -10,7 +10,7 @@ const {
 } = require('../services/solanaService');
 const { getDemoCertificate } = require('../services/demoCertificateService');
 const { CertificateStore } = require('../services/certificateStore');
-const EmailService = require('../services/emailService');
+const { isValidEmail } = require('../utils/validation');
 
 const router = express.Router();
 const MAX_CERTIFICATE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
@@ -179,7 +179,7 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
     if (
       !trimmedCertificateId ||
       !trimmedHolderName ||
-      !trimmedHolderEmail || !EmailService.isValidEmail(trimmedHolderEmail) ||
+      !trimmedHolderEmail || !isValidEmail(trimmedHolderEmail) ||
       !trimmedCertificateType ||
       !trimmedIssuerName
     ) {
@@ -373,22 +373,8 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
       localId: localCertificate?.id || null
     });
 
-    const holderNotification = await EmailService.sendCertificateIssued({
-      holderEmail: trimmedHolderEmail,
-      holderName: trimmedHolderName,
-      certificateId: trimmedCertificateId,
-      certificateType: trimmedCertificateType,
-      issuerName: trimmedIssuerName,
-      issuerWallet: trimmedIssuerWallet,
-      issuedAt,
-      ipfsCid: ipfsSource === 'pinata' ? ipfsCid : null,
-      blockchainTransactionId,
-      metadata: requestedMetadata
-    });
-
     res.status(201).json({
       success: true,
-      holder_notification: { sent: holderNotification.sent, mode: holderNotification.mode },
       certificate: {
         certificate_id: trimmedCertificateId,
         ipfs_cid: ipfsCid,
@@ -462,7 +448,7 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
     } = req.body;
 
     const trimmedCertificateId = typeof certificateId === 'string' ? certificateId.trim() : '';
-    if (!trimmedCertificateId || !holderName || !holderEmail || !EmailService.isValidEmail(holderEmail) || !certificateType || !issuerName || !issuerWallet || !ipfsCid || !blockchainTransactionId) {
+    if (!trimmedCertificateId || !holderName || !holderEmail || !isValidEmail(holderEmail) || !certificateType || !issuerName || !issuerWallet || !ipfsCid || !blockchainTransactionId) {
       return res.status(400).json({ error: 'Missing required fields for client-signed issuance' });
     }
 
@@ -614,20 +600,7 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
       blockchainTransactionId
     });
 
-    const holderNotification = await EmailService.sendCertificateIssued({
-      holderEmail,
-      holderName,
-      certificateId: trimmedCertificateId,
-      certificateType,
-      issuerName,
-      issuerWallet,
-      issuedAt,
-      ipfsCid: ipfsSource === 'pinata' ? ipfsCid : null,
-      blockchainTransactionId,
-      metadata: normalizedMetadata
-    });
-
-    return res.status(201).json({ success: true, warnings, holder_notification: { sent: holderNotification.sent, mode: holderNotification.mode }, certificate: { certificate_id: trimmedCertificateId, ipfs_cid: ipfsCid, ipfs_uri: ipfsUri, ipfs_source: ipfsSource, attachment_cid: attachment.cid || null, attachment_filename: attachment.filename || null, attachment_uri: attachment.uri || null, attachment_source: attachment.source || null, blockchain_transaction_id: blockchainTransactionId, status: 'valid', verification_status: 'valid', issuer_name: issuerName, issuer_wallet: issuerWallet, holder_name: holderName, holder_email: holderEmail, certificate_type: certificateType, metadata: storedMetadata, issued_at: dbCertificate?.issued_at || issuedAt, created_at: dbCertificate?.created_at || issuedAt } });
+    return res.status(201).json({ success: true, warnings, certificate: { certificate_id: trimmedCertificateId, ipfs_cid: ipfsCid, ipfs_uri: ipfsUri, ipfs_source: ipfsSource, attachment_cid: attachment.cid || null, attachment_filename: attachment.filename || null, attachment_uri: attachment.uri || null, attachment_source: attachment.source || null, blockchain_transaction_id: blockchainTransactionId, status: 'valid', verification_status: 'valid', issuer_name: issuerName, issuer_wallet: issuerWallet, holder_name: holderName, holder_email: holderEmail, certificate_type: certificateType, metadata: storedMetadata, issued_at: dbCertificate?.issued_at || issuedAt, created_at: dbCertificate?.created_at || issuedAt } });
   } catch (err) {
     console.error('Issue client-signed error:', err);
     return res.status(500).json({ error: 'Failed to record client-signed issuance', details: err.message });

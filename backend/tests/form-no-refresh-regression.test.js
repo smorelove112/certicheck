@@ -39,13 +39,13 @@ test('application form buttons do not submit the page', () => {
 test('application confirmation does not show an auto-generated CertiCheck email', () => {
   assert.doesNotMatch(indexHtml, /generatedEmailCard|Your CertiCheck email/);
   assert.doesNotMatch(scriptJs, /generateCertiCheckEmail|generatedEmailCard/);
-  assert.match(scriptJs, /showSuccessMessage\(officialEmail, notification = \{\}\)/);
+  assert.match(scriptJs, /showSuccessMessage\(officialEmail\)/);
 });
 
-test('signup communicates welcome-email delivery failures', () => {
-  assert.match(scriptJs, /welcomeEmailNotice/);
-  assert.match(scriptJs, /account was created, but the welcome email could not be delivered/i);
-  assert.match(scriptJs, /notification\?\.emailSent === false/);
+test('signup creates accounts directly and does not depend on email delivery', () => {
+  assert.match(indexHtml, /id="signupBtn"[^>]*>Create Account/);
+  assert.match(scriptJs, /fetch\(`\$\{API_BASE_URL\}\/auth\/register`/);
+  assert.doesNotMatch(indexHtml + scriptJs, /Send OTP|verify-otp|send-otp|welcomeEmailNotice/);
 });
 
 test('failed application submissions show an error instead of a false success state', () => {
@@ -53,13 +53,10 @@ test('failed application submissions show an error instead of a false success st
   assert.match(indexHtml, /id="applicationSubmitError"[^>]*role="alert"/);
   assert.match(submitFunction, /submitButton\.disabled = true/);
   assert.match(submitFunction, /Your application was not submitted and is not yet in the admin review queue/);
-  const successIndex = submitFunction.indexOf('showSuccessMessage(email,');
+  const successIndex = submitFunction.indexOf('showSuccessMessage(email)');
   const catchIndex = submitFunction.indexOf('} catch (error) {');
   assert.ok(successIndex >= 0 && successIndex < catchIndex, 'Success should only be shown before the failure handler');
-  assert.match(submitFunction, /showSuccessMessage\(email, data\.notification \|\| \{\}\)/);
-  assert.match(scriptJs, /notification\.emailPending/);
-  assert.match(scriptJs, /confirmation email is being sent/i);
-  assert.match(scriptJs, /we could not send the confirmation email/i);
+  assert.doesNotMatch(submitFunction, /notification/);
 });
 
 test('static localhost previews use the deployed API instead of an unavailable localhost backend', () => {
@@ -68,12 +65,8 @@ test('static localhost previews use the deployed API instead of an unavailable l
   assert.match(indexHtml, /script\.js\?v=20261002-instant-button-feedback/);
 });
 
-test('forgot-password OTP screen provides a resend control with a 40-second cooldown', () => {
-  assert.match(indexHtml, /id="resendResetOtpBtn"[^>]*disabled>Resend code in 40s/);
-  assert.match(scriptJs, /FORGOT_OTP_RESEND_COOLDOWN_MS = 40_000/);
-  assert.match(scriptJs, /beginForgotOtpResendCooldown\(\)/);
-  assert.match(scriptJs, /\/auth\/forgot-password/);
-  assert.match(scriptJs, /Resend code in \$\{remaining\}s/);
+test('forgot-password and OTP recovery interfaces are removed for both user roles', () => {
+  assert.doesNotMatch(indexHtml + scriptJs + adminHtml + adminJs, /Forgot password|forgot-password|verify-reset-otp|verify-forgot-password|adminResetOtp/);
 });
 
 test('login guidance explains the default password and required password change', () => {
@@ -100,22 +93,20 @@ test('expired admin tokens clear the stale session and return to sign-in', () =>
   assert.match(adminJs, /if \(err\.status === 401\) return false;\s*showAdminToast\(`Could not \$\{action\} the application/);
 });
 
-test('admin actions show a warning when notification delivery fails', () => {
-  assert.match(adminJs, /Email notification was not delivered/);
-  assert.match(adminJs, /Email notification failed for/);
+test('admin actions give status feedback without email delivery checks', () => {
+  assert.match(adminJs, /showAdminToast\(actionMessage, 'success'\)/);
+  assert.doesNotMatch(adminJs, /emailPending|emailSent|notification email/i);
 });
 
 test('admin action refresh avoids redundant application fetches and does not block action completion', () => {
   assert.match(adminJs, /if \(applicationListMissing \|\| applicationListTruncated\) \{/);
   assert.match(adminJs, /void loadAdminDashboard\(\);/);
-  assert.match(adminJs, /notification\??\.emailPending/);
 });
 
 test('slow user actions show painted, duplicate-safe button loading feedback', () => {
   assert.match(scriptJs, /async function withButtonLoading\(button, asyncFn, loadingText = 'Please wait\.\.\.'\)/);
   assert.match(scriptJs, /button\.dataset\.loading = '1'[\s\S]*?requestAnimationFrame/);
-  assert.match(scriptJs, /withButtonLoading\(btn,[\s\S]*?Sending OTP\.\.\./);
-  assert.match(scriptJs, /withButtonLoading\(btn,[\s\S]*?Verifying\.\.\./);
+  assert.match(scriptJs, /withButtonLoading\(btn,[\s\S]*?Creating account\.\.\./);
   assert.match(scriptJs, /withButtonLoading\(btn,[\s\S]*?Signing in\.\.\./);
   assert.match(scriptJs, /withButtonLoading\(button,[\s\S]*?Issuing\.\.\./);
   assert.match(scriptJs, /withButtonLoading\(button,[\s\S]*?Revoking\.\.\./);

@@ -1226,7 +1226,7 @@ function downloadMiniCertificate(certificate) {
   URL.revokeObjectURL(url);
 }
 
-function getCertificateIssuanceSuccessMarkup(certificate, notification, warnings = []) {
+function getCertificateIssuanceSuccessMarkup(certificate, warnings = []) {
   const holderName = escapeCertificateMarkup(certificate.holderName || certificate.holder_name);
   const certificateId = escapeCertificateMarkup(certificate.certificateId || certificate.certificate_id);
   const certificateType = escapeCertificateMarkup(certificate.certificateType || certificate.certificate_type || 'Certificate');
@@ -1242,7 +1242,6 @@ function getCertificateIssuanceSuccessMarkup(certificate, notification, warnings
   const ipfsMarkup = ipfsCid
     ? `<span class="celebration-break"><strong>${ipfsSource === 'pinata' ? 'IPFS CID:' : 'IPFS record:'}</strong> ${ipfsSource === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(ipfsCid)}" target="_blank" rel="noopener noreferrer">${escapeCertificateMarkup(ipfsCid)}</a>` : escapeCertificateMarkup(ipfsCid)}</span>`
     : '';
-  const emailMessage = getHolderNotificationMessage(notification);
   const confetti = Array.from({ length: 28 }, (_, index) => `<span class="celebration-confetti-piece piece-${index % 7}"></span>`).join('');
 
   return `<section class="issuance-celebration" aria-labelledby="issuanceCelebrationTitle">
@@ -1267,7 +1266,6 @@ function getCertificateIssuanceSuccessMarkup(certificate, notification, warnings
       <div class="celebration-actions">
         <button class="btn-primary" type="button" data-download-mini-certificate>Download mini-certificate</button>
       </div>
-      <p class="celebration-email-note">${escapeCertificateMarkup(emailMessage)}</p>
       <div class="celebration-issuance-details">
         <span><strong>Status:</strong> ${escapeCertificateMarkup(status)}</span>
         ${issuedAt ? `<span><strong>Issued:</strong> ${escapeCertificateMarkup(new Date(issuedAt).toLocaleString())}</span>` : ''}
@@ -1283,12 +1281,6 @@ function wireMiniCertificateDownload(container, certificate) {
   container?.querySelector('[data-download-mini-certificate]')?.addEventListener('click', () => {
     downloadMiniCertificate(certificate);
   });
-}
-
-function getHolderNotificationMessage(notification) {
-  if (notification?.sent) return 'The holder notification was sent by email.';
-  if (notification?.mode === 'console') return 'Development mode: the holder email was logged to the backend console, not delivered.';
-  return 'Certificate issued, but the holder notification could not be sent. Check the backend email configuration.';
 }
 
 function collectCertificateFieldValues(certificateType) {
@@ -1533,7 +1525,7 @@ function renderRoleLandingHome() {
               </div>
             </form>
             <div id="issuerDashboardNotice" style="display:none;margin-top:10px;font-size:13px;color:var(--text-secondary);"></div>
-            <div id="issuerDashboardResult" style="margin-top:14px;">${latestIssuerResult ? getCertificateIssuanceSuccessMarkup(latestIssuerResult, latestIssuerResult.holderNotification) : ''}</div>
+            <div id="issuerDashboardResult" style="margin-top:14px;">${latestIssuerResult ? getCertificateIssuanceSuccessMarkup(latestIssuerResult) : ''}</div>
           </div>
 
           <div style="background:var(--bg-subtle);border:1px solid var(--border-light);border-radius:18px;padding:18px;margin-bottom:18px;">
@@ -1755,12 +1747,11 @@ function renderRoleLandingHome() {
             issuerName: institution,
             issuedAt,
             status: issued.status || 'valid',
-            holderNotification: data.holder_notification
           };
           setLastIssuerResult(successDetails, user);
 
           notice.style.display = 'none';
-          result.innerHTML = getCertificateIssuanceSuccessMarkup(successDetails, data.holder_notification, data.warnings || []);
+          result.innerHTML = getCertificateIssuanceSuccessMarkup(successDetails, data.warnings || []);
           wireMiniCertificateDownload(result, successDetails);
           issuerDashboardForm.reset();
           try {
@@ -1853,8 +1844,6 @@ function navigate(page) {
 }
 
 function initAuthPageForms(page) {
-  if (page === "verify-otp") initOTPVerificationForm();
-  if (page === "verify-reset-otp") initVerifyResetOTPForm();
   if (page === "change-password") initChangePasswordForm();
 }
 
@@ -2095,7 +2084,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeRememberedFields();
   initSignupForm();
   initLoginForm();
-  initForgotPasswordForm();
   initAuthPageForms(currentPage);
 
   // Demo code chips: populate input but do not auto-submit
@@ -2365,13 +2353,6 @@ document.addEventListener("visibilitychange", () => {
 
 const THEME_KEY = "certicheck_theme";
 const PENDING_APPS_KEY = "certicheck_pending_apps";
-
-// Store signup data temporarily during OTP flow
-let pendingSignupData = null;
-let pendingForgotEmail = sessionStorage.getItem('certicheck_pending_forgot_email');
-const FORGOT_OTP_RESEND_COOLDOWN_MS = 40_000;
-const FORGOT_OTP_RESEND_UNTIL_KEY = 'certicheck_forgot_otp_resend_until';
-let forgotOtpResendTimer = null;
 
 async function initIssuerDashboard() {
   const formWrap = document.getElementById("issuerFormWrap");
@@ -2695,9 +2676,8 @@ async function initIssuerDashboard() {
         transaction: txId,
         ipfsCid: certificate.ipfs_cid,
         ipfsSource,
-        holderNotification: data.holder_notification
       };
-      resultEl.innerHTML = getCertificateIssuanceSuccessMarkup(successDetails, data.holder_notification, data.warnings || []);
+      resultEl.innerHTML = getCertificateIssuanceSuccessMarkup(successDetails, data.warnings || []);
       wireMiniCertificateDownload(resultEl, successDetails);
 
       // Refresh issuer list view if visible
@@ -2881,7 +2861,7 @@ function updateThemeToggleState() {
 }
 
 /* ═══════════════════════════════════════════════
-   AUTHENTICATION — Signup with OTP & Login
+   AUTHENTICATION — Signup & Login
 ═══════════════════════════════════════════════ */
 function initSignupForm() {
   const btn = document.getElementById("signupBtn");
@@ -2912,87 +2892,24 @@ function initSignupForm() {
 
     await withButtonLoading(btn, async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/send-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Unable to send verification code');
-
-        pendingSignupData = {
-          email,
-          firstName,
-          lastName,
-          userType: desiredSignupType || 'issuer'
-        };
-        document.getElementById('otpEmailDesc').textContent = `Enter the 6-digit code sent to ${email}.`;
-        document.getElementById('otpCode').value = '';
-        navigate('verify-otp');
-      } catch (err) {
-        errorEl.textContent = err.message || 'Unable to send verification code';
-        errorEl.style.display = 'block';
-      }
-    }, 'Sending OTP...');
-  });
-}
-
-function initOTPVerificationForm() {
-  const btn = document.getElementById('verifyOtpBtn');
-  const otpInput = document.getElementById('otpCode');
-  const resendBtn = document.getElementById('resendOtpBtn');
-  const errorEl = document.getElementById('otpError');
-  if (!btn || btn.dataset.bound === 'true') return;
-  btn.dataset.bound = 'true';
-
-  btn.addEventListener('click', async () => {
-    errorEl.style.display = 'none';
-    const otp = otpInput.value.trim();
-    if (!pendingSignupData) {
-      errorEl.textContent = 'Your signup session expired. Please start again.';
-      errorEl.style.display = 'block';
-      navigate('signup');
-      return;
-    }
-    if (!/^\d{6}$/.test(otp)) {
-      errorEl.textContent = 'Enter the 6-digit code sent to your email.';
-      errorEl.style.display = 'block';
-      return;
-    }
-
-    await withButtonLoading(btn, async () => {
-      try {
-        const verifyResponse = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: pendingSignupData.email, otp })
-        });
-        const verifyData = await verifyResponse.json().catch(() => ({}));
-        if (!verifyResponse.ok) throw new Error(verifyData.error || 'Invalid or expired verification code');
-
         const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email: pendingSignupData.email,
-            password: 'password',
-            firstName: pendingSignupData.firstName,
-            lastName: pendingSignupData.lastName,
-            userType: pendingSignupData.userType,
-            otp
+            email,
+            firstName,
+            lastName,
+            userType: desiredSignupType || 'issuer'
           })
         });
         const registerData = await registerResponse.json().catch(() => ({}));
         if (!registerResponse.ok) throw new Error(registerData.error || 'Registration failed');
-        const welcomeEmailNotice = registerData.notification?.emailSent === false
-          ? ' Your account was created, but the welcome email could not be delivered.'
-          : '';
 
         const draft = loadPendingApplicationDraft();
-        let applicationNotice = welcomeEmailNotice;
+        let applicationNotice = '';
         if (draft) {
           try {
-            draft.contactEmail = pendingSignupData.email;
+            draft.contactEmail = email;
             const applicationResponse = await fetch(`${API_BASE_URL}/applications/submit`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -3009,42 +2926,13 @@ function initOTPVerificationForm() {
           }
         }
 
-        pendingSignupData = null;
         navigate('login');
         showLoginNotice('Account created', `${registerData.message || 'Your account is pending admin approval. You can sign in after it has been approved.'}${applicationNotice}`);
       } catch (err) {
         errorEl.textContent = err.message || 'Unable to complete registration';
         errorEl.style.display = 'block';
       }
-    }, 'Verifying...');
-  });
-
-  resendBtn?.addEventListener('click', async () => {
-    if (!pendingSignupData || resendBtn.disabled) return;
-    const sent = await withButtonLoading(resendBtn, async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/auth/resend-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: pendingSignupData.email })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Unable to resend verification code');
-        otpInput.value = '';
-        errorEl.style.display = 'none';
-        return true;
-      } catch (err) {
-        errorEl.textContent = err.message || 'Unable to resend verification code';
-        errorEl.style.display = 'block';
-        return false;
-      }
-    }, 'Resending...');
-    if (sent) {
-      resendBtn.textContent = 'Code sent';
-      setTimeout(() => {
-        resendBtn.textContent = 'Resend';
-      }, 3000);
-    }
+    }, 'Creating account...');
   });
 }
 
@@ -3151,49 +3039,6 @@ function initLoginForm() {
   });
 }
 
-function initForgotPasswordForm() {
-  const btn = document.getElementById("forgotBtn");
-  const emailEl = document.getElementById("forgotEmail");
-  const errorEl = document.getElementById("forgotError");
-
-  if (!btn) return;
-
-  btn.addEventListener("click", async () => {
-    errorEl.style.display = "none";
-    const email = emailEl.value.trim().toLowerCase();
-
-    if (!email) {
-      errorEl.textContent = "Please enter your email";
-      errorEl.style.display = "block";
-      return;
-    }
-    if (!emailEl.checkValidity()) {
-      errorEl.textContent = "Enter a valid email address";
-      errorEl.style.display = "block";
-      return;
-    }
-
-    await withButtonLoading(btn, async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Unable to send reset OTP');
-        pendingForgotEmail = email;
-        sessionStorage.setItem('certicheck_pending_forgot_email', email);
-        beginForgotOtpResendCooldown();
-        navigate('verify-reset-otp');
-      } catch (err) {
-        errorEl.textContent = err.message || "Unable to send reset OTP. Please try again.";
-        errorEl.style.display = "block";
-      }
-    }, 'Sending code...');
-  });
-}
-
 function initChangePasswordForm() {
   const btn = document.getElementById("changePasswordBtn");
   const passwordEl = document.getElementById("changePassword");
@@ -3237,137 +3082,6 @@ function initChangePasswordForm() {
       btn.textContent = "Save Password";
     }
   });
-}
-
-function initVerifyResetOTPForm() {
-  const btn = document.getElementById("resetPasswordBtn");
-  const otpInput = document.getElementById("resetOtpCode");
-  const resendBtn = document.getElementById("resendResetOtpBtn");
-  const resendStatus = document.getElementById("resendResetOtpStatus");
-  const newPasswordEl = document.getElementById("newPassword");
-  const confirmPasswordEl = document.getElementById("confirmNewPassword");
-  const errorEl = document.getElementById("resetError");
-
-  if (!btn || btn.dataset.bound === "true" || !pendingForgotEmail) return;
-  btn.dataset.bound = "true";
-
-  if (resendBtn) {
-    resendBtn.hidden = false;
-    renderForgotOtpResendCooldown(resendBtn);
-    resendBtn.addEventListener("click", async () => {
-      if (resendBtn.disabled || !pendingForgotEmail) return;
-      if (resendStatus) resendStatus.textContent = "";
-
-      const sent = await withButtonLoading(resendBtn, async () => {
-        try {
-          const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: pendingForgotEmail })
-          });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(data.error || 'Unable to resend reset code');
-          return true;
-        } catch (err) {
-          if (resendStatus) resendStatus.textContent = err.message || "Unable to resend code.";
-          return false;
-        }
-      }, 'Sending code...');
-      if (sent) {
-        beginForgotOtpResendCooldown();
-        if (resendStatus) resendStatus.textContent = "If your account exists, a new code has been sent.";
-      }
-    });
-  }
-
-  btn.addEventListener("click", async () => {
-    errorEl.style.display = "none";
-    const otp = otpInput.value.trim();
-    const newPassword = newPasswordEl.value;
-    const confirmPassword = confirmPasswordEl.value;
-
-    if (!otp || otp.length !== 6) {
-      errorEl.textContent = "Please enter a valid 6-digit code";
-      errorEl.style.display = "block";
-      return;
-    }
-
-    if (!newPassword || !confirmPassword) {
-      errorEl.textContent = "Please enter and confirm your password";
-      errorEl.style.display = "block";
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      errorEl.textContent = "Passwords do not match";
-      errorEl.style.display = "block";
-      return;
-    }
-
-    if (newPassword.length < 6 || newPassword === "password") {
-      errorEl.textContent = 'Password must be at least 6 characters and cannot be "password"';
-      errorEl.style.display = "block";
-      return;
-    }
-
-    await withButtonLoading(btn, async () => {
-      try {
-        const resetResponse = await fetch(`${API_BASE_URL}/auth/reset-password`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: pendingForgotEmail,
-            newPassword,
-            otp
-          })
-        });
-        const resetData = await resetResponse.json().catch(() => ({}));
-        if (!resetResponse.ok) throw new Error(resetData.error || 'Unable to reset password');
-
-        pendingForgotEmail = null;
-        sessionStorage.removeItem('certicheck_pending_forgot_email');
-        sessionStorage.removeItem(FORGOT_OTP_RESEND_UNTIL_KEY);
-        if (forgotOtpResendTimer) {
-          clearInterval(forgotOtpResendTimer);
-          forgotOtpResendTimer = null;
-        }
-        navigate('login');
-      
-      } catch (err) {
-        errorEl.textContent = err.message || "Unable to reset password. Please try again.";
-        errorEl.style.display = "block";
-      }
-    }, 'Verifying...');
-  });
-}
-
-function beginForgotOtpResendCooldown() {
-  sessionStorage.setItem(FORGOT_OTP_RESEND_UNTIL_KEY, String(Date.now() + FORGOT_OTP_RESEND_COOLDOWN_MS));
-  const resendBtn = document.getElementById("resendResetOtpBtn");
-  if (resendBtn) renderForgotOtpResendCooldown(resendBtn);
-}
-
-function renderForgotOtpResendCooldown(resendBtn) {
-  if (forgotOtpResendTimer) {
-    clearInterval(forgotOtpResendTimer);
-    forgotOtpResendTimer = null;
-  }
-
-  const update = () => {
-    const until = Number(sessionStorage.getItem(FORGOT_OTP_RESEND_UNTIL_KEY) || 0);
-    const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
-    resendBtn.disabled = remaining > 0;
-    resendBtn.textContent = remaining > 0 ? `Resend code in ${remaining}s` : "Resend code";
-
-    if (remaining === 0 && forgotOtpResendTimer) {
-      clearInterval(forgotOtpResendTimer);
-      forgotOtpResendTimer = null;
-      sessionStorage.removeItem(FORGOT_OTP_RESEND_UNTIL_KEY);
-    }
-  };
-
-  update();
-  if (resendBtn.disabled) forgotOtpResendTimer = setInterval(update, 1000);
 }
 
 /* ═══════════════════════════════════════════════
@@ -3691,7 +3405,7 @@ async function submitApplyForm() {
     clearPendingApplicationDraft();
     const hidden = document.getElementById('contactEmail');
     if (hidden) hidden.value = email;
-    showSuccessMessage(email, data.notification || {});
+    showSuccessMessage(email);
   } catch (error) {
     console.error('Error submitting application:', error);
     saveApplicationLocally(applicationData);
@@ -3737,7 +3451,7 @@ function clearPendingApplicationDraft() {
   try { localStorage.removeItem('certicheck_pending_application_draft'); } catch (e) {}
 }
 
-function showSuccessMessage(officialEmail, notification = {}) {
+function showSuccessMessage(officialEmail) {
   navigate("apply");
   document.getElementById(`form-step-${applyStep}`)?.classList.remove("active");
   document.getElementById("form-step-success")?.classList.add("active");
@@ -3745,12 +3459,7 @@ function showSuccessMessage(officialEmail, notification = {}) {
 
   const msg = document.getElementById("successMsg");
   if (msg) {
-    const emailNotice = notification.emailPending
-      ? `<div style="margin-top:12px;color:var(--text-secondary);">Your application is in the review queue. A confirmation email is being sent to ${escapeCertificateMarkup(officialEmail)} and may take a few moments to arrive.</div>`
-      : notification.emailSent === false
-        ? '<div style="margin-top:12px;color:var(--red);">Your application was submitted, but we could not send the confirmation email. Please contact support if you need confirmation.</div>'
-        : '';
-    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${escapeCertificateMarkup(officialEmail)}</div>${emailNotice}`;
+    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${escapeCertificateMarkup(officialEmail)}</div>`;
   }
 
   // Mark all steps done

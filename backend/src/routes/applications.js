@@ -3,7 +3,7 @@ const Application = require('../models/Application');
 const User = require('../models/User');
 const pool = require('../db/connection');
 const { verifyToken, verifyAdmin, verifyAdminToken, logAudit } = require('../middleware/auth');
-const EmailService = require('../services/emailService');
+const { isValidEmail } = require('../utils/validation');
 const Admin = require('../models/Admin');
 const demoAdminStore = require('../services/demoAdminStore');
 const { DEFAULT_ADMIN_ACCOUNTS } = require('../services/defaultAdminAccounts');
@@ -26,24 +26,8 @@ async function getAdminActor(req) {
   };
 }
 
-function scheduleApplicationDecisionFollowUp(app, actor, appId, approved, reason = '') {
+function scheduleApplicationDecisionFollowUp(actor, appId, approved) {
   setImmediate(() => {
-    if (app.contact_email) {
-      Promise.resolve().then(() => EmailService.sendApplicationDecision(
-        app.contact_email,
-        app.contact_name,
-        app.organization_name,
-        approved,
-        reason
-      )).then(delivery => {
-        if (!EmailService.getReadiness().configured || !delivery) {
-          console.warn(`Application ${approved ? 'approval' : 'rejection'} email was not delivered.`);
-        }
-      }).catch(error => {
-        console.warn(`Application ${approved ? 'approval' : 'rejection'} email failed: ${error.message || error}`);
-      });
-    }
-
     Promise.resolve().then(() => logAudit(
       actor.id,
       approved ? 'APPLICATION_APPROVE' : 'APPLICATION_REJECT',
@@ -69,7 +53,7 @@ router.post('/submit', async (req, res) => {
     if (!orgName || !contactName || !contactEmail) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    if (!EmailService.isValidEmail(contactEmail)) {
+    if (!isValidEmail(contactEmail)) {
       return res.status(400).json({ error: 'A valid contact email address is required' });
     }
 
@@ -101,21 +85,12 @@ router.post('/submit', async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Application submitted successfully',
-      notification: { emailSent: false, emailPending: true },
       application: { ...app, generated_email: app.generated_email || generatedEmail }
     });
 
     setImmediate(() => {
-      Promise.all([
-        EmailService.sendApplicationReceived(contactEmail, contactName, orgName).then((emailResult) => {
-          const emailSent = EmailService.getReadiness().configured && Boolean(emailResult);
-          if (!emailSent) {
-            console.error('Application confirmation email was not delivered.');
-          }
-        }),
-        logAudit(userId, 'APPLICATION_SUBMIT', 'application', app.id, 'success')
-      ]).catch(() => {
-        console.error('Application submission follow-up failed; check the EmailService delivery diagnostic.');
+      logAudit(userId, 'APPLICATION_SUBMIT', 'application', app.id, 'success').catch(error => {
+        console.error('Application submission audit logging failed:', error.message || error);
       });
     });
   } catch (err) {
@@ -199,12 +174,11 @@ router.put('/:appId/approve', verifyAdminToken, verifyAdmin, async (req, res) =>
     const app = await Application.approve(appId, actor.id, actor.name, actor.profilePicture);
     if (!app) return res.status(404).json({ error: 'Application not found' });
 
-    scheduleApplicationDecisionFollowUp(app, actor, appId, true);
+    scheduleApplicationDecisionFollowUp(actor, appId, true);
 
     res.json({
       success: true,
       message: 'Application approved',
-      notification: { emailSent: false, emailPending: Boolean(app.contact_email) },
       application: app
     });
   } catch (err) {
@@ -277,12 +251,11 @@ router.put('/:appId/reject', verifyAdminToken, verifyAdmin, async (req, res) => 
     const app = await Application.reject(appId, actor.id, actor.name, actor.profilePicture);
     if (!app) return res.status(404).json({ error: 'Application not found' });
 
-    scheduleApplicationDecisionFollowUp(app, actor, appId, false, req.body?.reason || '');
+    scheduleApplicationDecisionFollowUp(actor, appId, false);
 
     res.json({
       success: true,
       message: 'Application rejected',
-      notification: { emailSent: false, emailPending: Boolean(app.contact_email) },
       application: app
     });
   } catch (err) {

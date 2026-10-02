@@ -640,22 +640,11 @@ async function handleBulkAction(action, button) {
 
   await withButtonLoading(button, async () => {
     try {
-      let emailFailures = 0;
-      let pendingEmailCount = 0;
       for (const id of selected) {
-        const result = await requestJson(`/applications/${id}/${action === 'approve' ? 'approve' : 'reject'}`, { method: 'PUT' });
-        if (result.notification?.emailPending) pendingEmailCount += 1;
-        else if (result.notification?.emailSent === false) emailFailures += 1;
+        await requestJson(`/applications/${id}/${action === 'approve' ? 'approve' : 'reject'}`, { method: 'PUT' });
       }
       const actionMessage = `${selected.length} application${selected.length > 1 ? 's were' : ' was'} ${action === 'approve' ? 'approved' : 'rejected'}.`;
-      showAdminToast(
-        emailFailures
-          ? `${actionMessage} Email notification failed for ${emailFailures} applicant${emailFailures > 1 ? 's' : ''}.`
-          : pendingEmailCount
-            ? `${actionMessage} ${pendingEmailCount} notification email${pendingEmailCount > 1 ? 's are' : ' is'} being sent.`
-            : actionMessage,
-        emailFailures ? 'danger' : 'success'
-      );
+      showAdminToast(actionMessage, 'success');
       void loadAdminDashboard();
     } catch (err) {
       if (err.status === 401) return;
@@ -856,16 +845,7 @@ async function handleApplicationAction(action, id, button) {
       const result = await requestJson(endpoint, { method: "PUT" });
       if (result.success !== true) throw new Error(result.error || 'The application update was not confirmed.');
       const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application revoked and moved to revoked queue.';
-      showAdminToast(
-        result.notification?.emailPending
-          ? `${actionMessage} The notification email is being sent.`
-          : result.notification?.emailSent === false
-            ? `${actionMessage} Email notification was not delivered.`
-            : actionMessage,
-        result.notification?.emailSent === false && !result.notification?.emailPending
-          ? 'danger'
-          : action === 'approve' ? 'success' : 'danger'
-      );
+      showAdminToast(actionMessage, action === 'approve' ? 'success' : 'danger');
       void loadAdminDashboard();
       return true;
     } catch (err) {
@@ -1060,8 +1040,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const profileSettingsDialog = document.getElementById('adminProfileSettingsDialog');
   const profileSettingsForm = document.getElementById('adminProfileSettingsForm');
   const passwordChangeForm = document.getElementById('adminPasswordChangeForm');
-  const forgotPasswordDialog = document.getElementById('adminForgotPasswordDialog');
-  const forgotPasswordMessage = document.getElementById('adminForgotPasswordMessage');
 
   if (profileToggle && profileMenu) {
     profileToggle.addEventListener('click', (event) => {
@@ -1188,49 +1166,6 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (err) {
       showAdminToast(err.message || 'Unable to update password.', 'danger');
     }
-  });
-
-  document.getElementById('adminForgotPassword')?.addEventListener('click', () => {
-    const email = document.getElementById('adminEmail').value.trim();
-    document.getElementById('adminResetEmail').value = email;
-    forgotPasswordMessage.textContent = '';
-    forgotPasswordDialog?.showModal();
-  });
-  document.getElementById('adminForgotPasswordClose')?.addEventListener('click', () => forgotPasswordDialog?.close());
-  document.getElementById('adminForgotPasswordForm')?.addEventListener('submit', async event => {
-    event.preventDefault();
-    const email = document.getElementById('adminResetEmail').value.trim();
-    const button = event.submitter || event.currentTarget.querySelector('[type="submit"]');
-    await withButtonLoading(button, async () => {
-      try {
-        const data = await requestJson('/auth/forgot-password', {
-          method: 'POST',
-          body: JSON.stringify({ email })
-        });
-        forgotPasswordMessage.textContent = data.message || 'If the admin account exists, a reset code was sent.';
-      } catch (err) {
-        forgotPasswordMessage.textContent = err.message || 'Unable to send a reset code.';
-      }
-    }, 'Sending code...');
-  });
-  document.getElementById('adminResetPasswordForm')?.addEventListener('submit', async event => {
-    event.preventDefault();
-    const email = document.getElementById('adminResetEmail').value.trim();
-    const otp = document.getElementById('adminResetOtp').value.trim();
-    const newPassword = document.getElementById('adminResetNewPassword').value;
-    const button = event.submitter || event.currentTarget.querySelector('[type="submit"]');
-    await withButtonLoading(button, async () => {
-      try {
-        const data = await requestJson('/auth/reset-password', {
-          method: 'POST',
-          body: JSON.stringify({ email, otp, newPassword })
-        });
-        forgotPasswordMessage.textContent = data.message || 'Password reset successfully.';
-        showAdminToast('Password reset. Sign in with your new password.', 'success');
-      } catch (err) {
-        forgotPasswordMessage.textContent = err.message || 'Unable to reset password.';
-      }
-    }, 'Verifying...');
   });
 
   // update navbar profile when state present

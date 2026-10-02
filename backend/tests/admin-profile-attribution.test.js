@@ -16,31 +16,19 @@ process.env.DEMO_ADMIN_STORE_FILE = path.join(tempDir, 'admins.json');
 process.env.DEMO_APPLICATION_STORE_FILE = path.join(tempDir, 'applications.json');
 
 const pool = require('../src/db/connection');
-const OTP = require('../src/models/OTP');
-const EmailService = require('../src/services/emailService');
 const authRoutes = require('../src/routes/auth');
 const applicationRoutes = require('../src/routes/applications');
 const demoAppStore = require('../src/services/demoApplicationStore');
 const originalPoolQuery = pool.query;
-const originalOtpMethods = {
-  create: OTP.create,
-  verify: OTP.verify,
-  isVerified: OTP.isVerified,
-  consume: OTP.consume
-};
-const originalSendOtp = EmailService.sendOTP;
-
 let server;
 
 test.after(async () => {
   if (server) await new Promise(resolve => server.close(resolve));
   pool.query = originalPoolQuery;
-  Object.assign(OTP, originalOtpMethods);
-  EmailService.sendOTP = originalSendOtp;
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
-test('individual admin profiles, password recovery, and application decisions remain attributed', async () => {
+test('individual admin profiles and application decisions remain attributed', async () => {
   pool.query = async () => ({ rows: [] });
   const app = express();
   app.use(express.json({ limit: '5mb' }));
@@ -132,24 +120,6 @@ test('individual admin profiles, password recovery, and application decisions re
   assert.equal((await login('admin@certicheck.com', 'password')).response.status, 401);
   assert.equal((await login('admin@certicheck.com', 'admin-a-new-password')).response.status, 200);
 
-  const otpEmail = 'admin2@certicheck.com';
-  OTP.create = async () => ({ otp_code: '483920', expires_at: new Date(Date.now() + 600000) });
-  OTP.verify = async (email, otp) => email === otpEmail && otp === '483920' ? { id: 1 } : null;
-  OTP.isVerified = async () => true;
-  OTP.consume = async () => {};
-  EmailService.sendOTP = async () => ({ success: true });
-  const forgot = await request('/api/auth/forgot-password', { method: 'POST', body: { email: otpEmail } });
-  assert.equal(forgot.response.status, 200);
-  const verified = await request('/api/auth/verify-forgot-password', {
-    method: 'POST', body: { email: otpEmail, otp: '483920' }
-  });
-  assert.equal(verified.response.status, 200);
-  const reset = await request('/api/auth/reset-password', {
-    method: 'POST', body: { email: otpEmail, otp: '483920', newPassword: 'admin-b-new-password' }
-  });
-  assert.equal(reset.response.status, 200);
-
   assert.equal((await login('admin@certicheck.com', 'admin-a-new-password')).response.status, 200);
-  assert.equal((await login(otpEmail, 'password')).response.status, 401);
-  assert.equal((await login(otpEmail, 'admin-b-new-password')).response.status, 200);
+  assert.equal((await login('admin2@certicheck.com', 'password')).response.status, 200);
 });

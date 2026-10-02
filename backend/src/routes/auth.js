@@ -4,9 +4,7 @@ const pool = require('../db/connection');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
 const Application = require('../models/Application');
-const OTP = require('../models/OTP');
-const EmailService = require('../services/emailService');
-const { sendOtpEmail } = require('../services/otpEmail');
+const { isValidEmail } = require('../utils/validation');
 const demoAdminStore = require('../services/demoAdminStore');
 const { DEFAULT_ADMIN_ACCOUNTS } = require('../services/defaultAdminAccounts');
 const { logAudit, verifyToken, verifyAdmin, verifyAdminToken } = require('../middleware/auth');
@@ -75,18 +73,6 @@ function createAdminToken(identity) {
   );
 }
 
-async function findPasswordResetAccount(email) {
-  if (process.env.DEMO_MODE === 'true') {
-    const demoAdmin = await demoAdminStore.findByEmail(email, DEFAULT_ADMIN_ACCOUNTS);
-    return demoAdmin || User.findByEmail(email);
-  }
-  return User.findByEmail(email);
-}
-
-function isAdminAccount(account) {
-  return account?.user_type === 'admin' || account?.role === 'admin';
-}
-
 function getLoginApplicationNotice(application) {
   if (application?.status === 'pending') {
     return {
@@ -116,10 +102,6 @@ function validateNewPassword(password) {
   return typeof password === 'string' && password.length >= 6 && password !== 'password';
 }
 
-function emailConfigurationError(err) {
-  return err?.code === 'EMAIL_NOT_CONFIGURED' || err?.code === 'EMAIL_FROM_MISMATCH';
-}
-
 function setAuthCookie(res, token) {
   const isProduction = process.env.NODE_ENV === 'production';
   res.cookie('token', token, {
@@ -147,8 +129,8 @@ async function ensureSeededAccounts() {
     if (!existingUser) {
       const created = await User.create(account.email, account.password, account.firstName, account.lastName, account.userType);
       await pool.query(
-        'UPDATE users SET is_active = TRUE, must_change_password = FALSE, updated_at = NOW() WHERE id = $1',
-        [created.id]
+        'UPDATE users SET is_active = TRUE, must_change_password = $2, updated_at = NOW() WHERE id = $1',
+        [created.id, account.userType === 'issuer']
       );
       if (account.userType === 'issuer') {
         await pool.query(
@@ -170,6 +152,13 @@ async function ensureSeededAccounts() {
     }
 
     if (account.userType === 'issuer') {
+      const stillUsingDefaultPassword = await User.verifyPassword(account.email, account.password);
+      if (stillUsingDefaultPassword && !existingUser.must_change_password) {
+        await pool.query(
+          'UPDATE users SET must_change_password = TRUE, updated_at = NOW() WHERE id = $1',
+          [existingUser.id]
+        );
+      }
       const profileExists = await pool.query(
         'SELECT id FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
         [existingUser.id]
@@ -191,122 +180,11 @@ async function ensureSeededAccounts() {
   }
 }
 
-// ── SEND OTP FOR SIGNUP ──────────────────────────────────────────────────────
-router.post('/send-otp', async (req, res) => {
-  try {
-    const email = normalizeEmail(req.body.email);
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
-
-    if (!EmailService.isValidEmail(email)) {
-      return res.status(400).json({ error: 'Please use a valid email address' });
-    }
-
-    if (isReservedAdminEmail(email)) {
-      return res.status(403).json({ error: 'This email is reserved for admin access' });
-    }
-
-    // Check if email already registered
-    const existingUser = await User.findByEmail(email);
-    if (existingUser) {
-      return res.status(409).json({ error: 'This email is already registered. Please sign in instead.' });
-    }
-
-    // Generate and store OTP
-    const otp = await OTP.create(email, 'signup');
-    
-    // Send OTP email
-    await EmailService.sendOTP(email, otp.otp_code, 'signup');
-
-    res.json({
-      success: true,
-      message: `OTP sent successfully to ${email}`,
-      expiresAt: otp.expires_at
-    });
-  } catch (err) {
-    console.error('Send OTP error:', err);
-    res.status(emailConfigurationError(err) ? 503 : 500).json({
-      error: emailConfigurationError(err)
-        ? err.message
-        : 'Failed to send OTP email. Please try again.'
-    });
-  }
-});
-
-// ── RESEND OTP ──────────────────────────────────────────────────────────────
-router.post('/resend-otp', async (req, res) => {
-  try {
-    const email = normalizeEmail(req.body.email);
-
-    if (!email || !EmailService.isValidEmail(email)) {
-      return res.status(400).json({ error: 'A valid email address is required' });
-    }
-
-    if (isReservedAdminEmail(email)) {
-      return res.status(403).json({ error: 'This email is reserved for admin access' });
-    }
-
-    const existingUser = await User.findByEmail(email);
-    if (existingUser) {
-      return res.status(409).json({ error: 'This email is already registered. Please sign in instead.' });
-    }
-
-    const otp = await OTP.create(email, 'signup');
-    await EmailService.sendOTP(email, otp.otp_code, 'signup');
-
-    res.json({
-      success: true,
-      message: `A new OTP has been sent to ${email}`,
-      expiresAt: otp.expires_at
-    });
-  } catch (err) {
-    console.error('Resend OTP error:', err);
-    res.status(emailConfigurationError(err) ? 503 : 500).json({
-      error: emailConfigurationError(err)
-        ? err.message
-        : 'Failed to resend OTP email. Please try again.'
-    });
-  }
-});
-
-// ── VERIFY OTP ───────────────────────────────────────────────────────────────
-router.post('/verify-otp', async (req, res) => {
-  try {
-    const email = normalizeEmail(req.body.email);
-    const otp = String(req.body.otp || '').trim();
-
-    if (!email || !otp) {
-      return res.status(400).json({ error: 'Both email and 6-digit OTP are required' });
-    }
-
-    if (!EmailService.isValidEmail(email)) {
-      return res.status(400).json({ error: 'Invalid email address format' });
-    }
-
-    const verified = await OTP.verify(email, otp, 'signup');
-    
-    if (!verified) {
-      await OTP.incrementAttempts(email, otp, 'signup');
-      return res.status(401).json({ error: 'Invalid or expired OTP code. Please try again.' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Email verified successfully'
-    });
-  } catch (err) {
-    console.error('Verify OTP error:', err);
-    res.status(500).json({ error: 'OTP verification failed' });
-  }
-});
-
-// ── REGISTER WITH OTP ────────────────────────────────────────────────────────
+// ── REGISTER ─────────────────────────────────────────────────────────────────
 router.post('/register', async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
-    const { firstName, lastName, userType = 'user', otp } = req.body;
+    const { firstName, lastName, userType = 'user' } = req.body;
 
     if (!email || !firstName || !lastName) {
       return res.status(400).json({ error: 'Missing required fields: email, firstName, lastName' });
@@ -319,25 +197,12 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Invalid user type' });
     }
 
-    if (!EmailService.isValidEmail(email)) {
+    if (!isValidEmail(email)) {
       return res.status(400).json({ error: 'Please use a valid email address' });
     }
 
     if (isReservedAdminEmail(email)) {
       return res.status(403).json({ error: 'This email is reserved for admin access' });
-    }
-
-    // Verify OTP requirement: check if verified in session or via direct OTP parameter
-    let otpValid = await OTP.isVerified(email, 'signup');
-    if (!otpValid && otp) {
-      const verifiedRecord = await OTP.verify(email, otp, 'signup');
-      otpValid = !!verifiedRecord;
-    }
-
-    if (!otpValid) {
-      return res.status(403).json({ 
-        error: 'Email has not been verified with OTP. Please complete OTP verification first.' 
-      });
     }
 
     const existingUser = await User.findByEmail(email);
@@ -347,24 +212,12 @@ router.post('/register', async (req, res) => {
 
     const newUser = await User.create(email, 'password', firstName, lastName, userType);
     
-    // Invalidate the verified OTP now that registration is complete
-    await OTP.consume(email, 'signup');
-
     await logAudit(newUser.id, 'REGISTER', 'user', newUser.id, 'success');
-
-    let welcomeEmailSent = false;
-    try {
-      const delivery = await EmailService.sendWelcome(email, firstName);
-      welcomeEmailSent = EmailService.getReadiness().configured && Boolean(delivery);
-    } catch {
-      console.error('Welcome email was not delivered.');
-    }
 
     res.status(201).json({
       success: true,
       code: 'ACCOUNT_PENDING_APPROVAL',
       message: 'Registration successful. Your account is pending admin approval. Once approved, sign in with the default password and change it immediately.',
-      notification: { emailSent: welcomeEmailSent },
       user: {
         id: newUser.id,
         email: newUser.email,
@@ -381,134 +234,6 @@ router.post('/register', async (req, res) => {
   } catch (err) {
     console.error('Registration error:', err);
     res.status(500).json({ error: 'Registration failed: ' + (err.message || 'Internal server error') });
-  }
-});
-
-// ── FORGOT PASSWORD - SEND OTP ───────────────────────────────────────────────
-router.post('/forgot-password', async (req, res) => {
-  try {
-    const email = normalizeEmail(req.body.email);
-
-    if (!email || !EmailService.isValidEmail(email)) {
-      return res.status(400).json({ error: 'A valid email address is required' });
-    }
-
-    EmailService.assertConfigured();
-    const user = await findPasswordResetAccount(email);
-    if (!user) {
-      // Don't reveal if email exists for security
-      return res.json({
-        success: true,
-        message: 'If email exists, OTP will be sent'
-      });
-    }
-    // Generate and store OTP
-    const isDemoAdmin = process.env.DEMO_MODE === 'true' && isAdminAccount(user);
-    const otp = isDemoAdmin
-      ? await OTP.create(email, 'forgot_password')
-      : await User.createPasswordResetOtp(email);
-    if (!otp) {
-      return res.json({ success: true, message: 'If email exists, OTP will be sent' });
-    }
-    
-    // Send OTP email
-    await sendOtpEmail(email, otp.otp_code, 'forgot_password');
-
-    res.json({
-      success: true,
-      message: 'OTP sent to email',
-      expiresAt: otp.expires_at
-    });
-  } catch (err) {
-    console.error('Forgot password error:', err);
-    res.status(emailConfigurationError(err) ? 503 : 500).json({
-      error: emailConfigurationError(err)
-        ? err.message
-        : 'Failed to send reset OTP email. Please try again.'
-    });
-  }
-});
-
-// ── VERIFY FORGOT PASSWORD OTP ───────────────────────────────────────────────
-router.post('/verify-forgot-password', async (req, res) => {
-  try {
-    const email = normalizeEmail(req.body.email);
-    const otp = req.body.otp;
-
-    if (!email || !/^\d{6}$/.test(String(otp || '')) || !EmailService.isValidEmail(email)) {
-      return res.status(400).json({ error: 'A valid email and OTP are required' });
-    }
-    const user = await findPasswordResetAccount(email);
-    const verified = user && process.env.DEMO_MODE === 'true' && isAdminAccount(user)
-      ? await OTP.verify(email, otp, 'forgot_password')
-      : user
-        ? await User.verifyPasswordResetOtp(email, otp)
-        : false;
-    
-    if (!verified) {
-      if (user && process.env.DEMO_MODE === 'true' && isAdminAccount(user)) {
-        await OTP.incrementAttempts(email, otp, 'forgot_password');
-      }
-      return res.status(401).json({ error: 'Invalid or expired OTP' });
-    }
-
-    res.json({
-      success: true,
-      message: 'OTP verified successfully'
-    });
-  } catch (err) {
-    console.error('Verify forgot password OTP error:', err);
-    res.status(500).json({ error: 'OTP verification failed' });
-  }
-});
-
-// ── RESET PASSWORD ───────────────────────────────────────────────────────────
-router.post('/reset-password', async (req, res) => {
-  try {
-    const email = normalizeEmail(req.body.email);
-    const { newPassword, otp } = req.body;
-
-    if (!email || !newPassword || !/^\d{6}$/.test(String(otp || '')) || !EmailService.isValidEmail(email)) {
-      return res.status(400).json({ error: 'A valid email and new password are required' });
-    }
-    const user = await findPasswordResetAccount(email);
-
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid or expired OTP' });
-    }
-    if (!validateNewPassword(newPassword)) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters and cannot be "password"' });
-    }
-
-    if (process.env.DEMO_MODE === 'true' && isAdminAccount(user)) {
-      const verified = await OTP.isVerifiedCode(email, otp, 'forgot_password') ||
-        await OTP.verify(email, otp, 'forgot_password');
-      if (!verified) {
-        await OTP.incrementAttempts(email, otp, 'forgot_password');
-        return res.status(401).json({ error: 'Invalid or expired OTP' });
-      }
-      await demoAdminStore.updatePassword(user.id, newPassword, DEFAULT_ADMIN_ACCOUNTS);
-      await OTP.consume(email, 'forgot_password');
-    } else {
-      const verified = await User.verifyPasswordResetOtp(email, otp);
-      if (!verified) return res.status(401).json({ error: 'Invalid or expired OTP' });
-      const updatedUser = await User.resetPasswordWithOtp(email, otp, newPassword);
-      if (!updatedUser) return res.status(401).json({ error: 'Invalid or expired OTP' });
-      if (isAdminAccount(user)) await Admin.syncPasswordHash(user.id);
-    }
-    
-    await logAudit(user.id, 'PASSWORD_CHANGE', isAdminAccount(user) ? 'admin' : 'user', user.id, 'success', null, {
-      adminId: isAdminAccount(user) ? user.id : null,
-      adminName: isAdminAccount(user) ? (user.name || [user.first_name, user.last_name].filter(Boolean).join(' ')) : null
-    });
-
-    res.json({
-      success: true,
-      message: 'Password reset successfully'
-    });
-  } catch (err) {
-    console.error('Reset password error:', err);
-    res.status(500).json({ error: 'Failed to reset password' });
   }
 });
 
@@ -546,7 +271,7 @@ router.post('/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
-    if (!EmailService.isValidEmail(email)) {
+    if (!isValidEmail(email)) {
       return res.status(400).json({ error: 'A valid email address is required' });
     }
 
@@ -637,7 +362,7 @@ router.post('/admin/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
-    if (!EmailService.isValidEmail(email)) {
+    if (!isValidEmail(email)) {
       return res.status(400).json({ error: 'A valid email address is required' });
     }
 

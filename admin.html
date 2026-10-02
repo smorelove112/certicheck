@@ -90,7 +90,6 @@
         </div>
         <button type="submit" class="btn-primary" style="width:100%;justify-content:center;">Sign In</button>
       </form>
-      <button id="adminForgotPassword" class="btn-ghost" type="button" style="margin-top:10px">Forgot password?</button>
     </div>
 
     <section class="admin-stats" style="margin-bottom:18px;display:none;">
@@ -141,22 +140,6 @@
       <label>New password<input id="adminNewPassword" type="password" autocomplete="new-password" minlength="6" required style="display:block;width:100%;margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary)"></label>
       <button class="btn-outline" type="submit">Update password</button>
     </form>
-  </dialog>
-
-  <dialog id="adminForgotPasswordDialog" style="width:min(460px,calc(100vw - 32px));border:1px solid var(--border);border-radius:16px;background:var(--bg-card);color:var(--text-primary);padding:24px">
-    <form id="adminForgotPasswordForm" style="display:flex;flex-direction:column;gap:14px">
-      <h2 style="margin:0">Reset admin password</h2>
-      <p style="margin:0;color:var(--text-secondary)">An OTP will be sent to the admin email address you enter.</p>
-      <label>Admin email<input id="adminResetEmail" type="email" required style="display:block;width:100%;margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary)"></label>
-      <button class="btn-outline" type="submit">Send reset code</button>
-    </form>
-    <form id="adminResetPasswordForm" style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
-      <label>OTP code<input id="adminResetOtp" inputmode="numeric" autocomplete="one-time-code" required style="display:block;width:100%;margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary)"></label>
-      <label>New password<input id="adminResetNewPassword" type="password" minlength="6" autocomplete="new-password" required style="display:block;width:100%;margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary)"></label>
-      <button class="btn-primary" type="submit">Reset password</button>
-      <button id="adminForgotPasswordClose" class="btn-ghost" type="button">Close</button>
-    </form>
-    <div id="adminForgotPasswordMessage" role="status" style="margin-top:12px"></div>
   </dialog>
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>

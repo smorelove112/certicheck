@@ -6,7 +6,6 @@ const bodyParser = require('body-parser');
 const https = require('https');
 const pool = require('./db/connection');
 const { initializeDatabase } = require('./db/init');
-const EmailService = require('./services/emailService');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -55,21 +54,18 @@ app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
 app.get('/health', async (req, res) => {
-  const email = EmailService.getReadiness();
   try {
     const result = await pool.query('SELECT NOW()');
     res.json({
       status: 'ok',
       timestamp: result.rows[0].now,
-      message: 'Certicheck backend is running',
-      email
+      message: 'Certicheck backend is running'
     });
   } catch (err) {
     res.status(200).json({
       status: 'degraded',
       message: 'Backend is running, but the database is unavailable',
-      error: err.message,
-      email
+      error: err.message
     });
   }
 });
@@ -208,10 +204,6 @@ async function startServer() {
     } else {
       console.log('✓ Running in DEMO_MODE — skipping database initialization');
     }
-
-    void EmailService.verifyTransporter().catch(error => {
-      EmailService.recordDeliveryFailure(error, 'startup verification');
-    });
 
     app.listen(PORT, HOST, () => {
       console.log(`✓ Certicheck backend running on http://${HOST}:${PORT}`);

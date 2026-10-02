@@ -45,17 +45,6 @@ DB_NAME=certicheck
 JWT_SECRET=your_secret_key_here
 JWT_EXPIRE=7d
 ADMIN_EMAIL=admin@certicheck.com
-# Gmail SMTP: use a Google App Password with 2-Step Verification enabled.
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465
-SMTP_SECURE=true
-SMTP_USER=your-gmail@gmail.com
-# Set SMTP_PASS only in Render's Environment settings; never commit it.
-EMAIL_FROM=CertiCheck <your-gmail@gmail.com>
-
-# Alternative SMTP providers use SMTP_HOST, SMTP_PORT, SMTP_SECURE,
-# SMTP_USER and SMTP_PASS; store SMTP_PASS only in Render Environment settings.
-
 # IPFS / Pinata
 PINATA_JWT=
 
@@ -66,13 +55,13 @@ SOLANA_RPC_URL=https://api.devnet.solana.com
 CERTIFICATE_PROGRAM_ID=4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob
 ```
 
-On first admin authentication, the backend seeds three individual admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change each account's password before exposing a deployment publicly. Admin names, avatars, and password changes are personal to each account. The Admin Dashboard provides email OTP recovery for an individual admin.
+On first admin authentication, the backend seeds three individual admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change each account's password before exposing a deployment publicly. Admin names, avatars, and password changes are personal to each account.
 
-Signup, login, and password reset accept valid email addresses from any domain. For Gmail, configure `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER`, `SMTP_PASS`, and `EMAIL_FROM` in the backend deployment environment. `SMTP_PASS` must be a Google App Password generated while 2-Step Verification is enabled; a regular Google account password will not work. Set `EMAIL_FROM` to the same mailbox as `SMTP_USER`. Port 587 is also supported with `SMTP_SECURE=false`. On Render, add credentials under the backend service's **Environment** settings, never in a tracked file, then redeploy. The legacy `EMAIL_USER` and `EMAIL_PASSWORD` aliases remain supported. SMTP verification runs in the background during startup; missing credentials or connection failures are logged as warnings and do not prevent the API from starting. `/health` reports sanitized configuration, provider, verification state, and a non-secret diagnostic reason. SMTP connection, greeting, and socket operations time out after 10 seconds to prevent requests hanging indefinitely. Application submissions are saved first and their confirmation emails are sent asynchronously; email-delivery errors are logged. Configure SPF/DKIM with your mail provider. Development mode logs OTPs to the backend console instead of sending email. Password-reset OTPs expire after 10 minutes, allow at most five attempts, and are consumed after a successful reset.
+Signup and login accept syntactically valid email addresses from any domain. Email addresses are used for account sign-in and issuer/applicant contact records; the application does not send mail or verify mailbox ownership. Newly approved issuer accounts use the default password `password` and are required to change it at first sign-in. Password recovery is not available; administrators can assist with account access.
 
-Issuer application submissions return as soon as the application is saved. The confirmation email and audit-log write run asynchronously so a slow SMTP server does not hold the applicant on the submit screen; the response marks the email as pending with `notification.emailPending: true`.
+Issuer application submissions are saved to the review queue and their audit-log writes run asynchronously.
 
-With `PINATA_JWT` configured, approved issuers pin the complete certificate metadata and any supporting file before signing issuance with their connected Phantom wallet. On-chain issuance is stopped if Pinata returns a fallback hash or fails to pin; a fallback hash is never treated as an IPFS CID. The backend verifies the resulting certificate account, instruction arguments, issuer signature, and confirmed transaction before recording it. After successful issuance, the issuer dashboard displays a celebratory mini-certificate preview and download; the holder notification email includes the same mini-certificate as an SVG attachment. Never commit the JWT.
+With `PINATA_JWT` configured, approved issuers pin the complete certificate metadata and any supporting file before signing issuance with their connected Phantom wallet. On-chain issuance is stopped if Pinata returns a fallback hash or fails to pin; a fallback hash is never treated as an IPFS CID. The backend verifies the resulting certificate account, instruction arguments, issuer signature, and confirmed transaction before recording it. After successful issuance, the issuer dashboard displays a celebratory mini-certificate preview and download. Never commit the JWT.
 
 The configured devnet program ID is `4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob`. Set `SOLANA_ENABLE=true`, `SOLANA_CLUSTER=devnet`, `SOLANA_RPC_URL=https://api.devnet.solana.com`, and `CERTIFICATE_PROGRAM_ID` in the backend environment. Issuance and revocation are signed by the approved issuer wallet in the browser; the backend does not need a copy of an issuer's private key. Confirm that the program is deployed and upgraded before enabling this setting in a production backend.
 
@@ -125,11 +114,10 @@ This runs the backend unit and integration test suite, including multi-admin pro
 - `POST /api/auth/admin/login` - Sign in as an individual admin
 - `GET /api/auth/admin/profile` and `PUT /api/auth/admin/profile` - Read/update the signed-in admin's display name and profile picture
 - `POST /api/auth/admin/change-password` - Change the signed-in admin's password
-- `POST /api/auth/forgot-password`, `/api/auth/verify-forgot-password`, and `/api/auth/reset-password` - Recover an individual account with its email OTP
 - `GET /api/auth/admin/users/pending` - List user accounts awaiting approval
 - `PUT /api/auth/admin/users/:userId/approve` - Approve a pending account; the account is activated with a hashed `password` initial password and must change it before accessing protected routes
 
-Signup accepts valid email addresses from any domain and creates accounts in a pending state. Password reset codes are stored on the user record, expire after 10 minutes, allow at most five attempts, and are cleared when the reset succeeds.
+Signup accepts valid email addresses from any domain and creates accounts in a pending state. Once an issuer account is approved, its first sign-in requires changing the default password.
 
 ### Applications
 
