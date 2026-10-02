@@ -73,6 +73,7 @@ function createApplication({ issuerId, orgName, orgType, website, contactName, c
   return {
     id: app.id,
     organization_name: app.organization_name,
+    contact_email: app.contact_email,
     generated_email: app.generated_email,
     status: app.status,
     submitted_at: app.submitted_at
