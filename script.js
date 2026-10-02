@@ -89,9 +89,8 @@ const FAQ_DATA = [
 ];
 
 const localApiOrigin = ["localhost", "127.0.0.1"].includes(window.location.hostname)
-  ? (["3000", "5000"].includes(window.location.port)
-    ? window.location.origin
-    : "http://127.0.0.1:5000")
+  && ["3000", "5000"].includes(window.location.port)
+  ? window.location.origin
   : null;
 const API_BASE_URL = window.CERTICHECK_API_BASE_URL ||
   (localApiOrigin ? `${localApiOrigin}/api` : "https://certicheck-backend-8hu3.onrender.com/api");

@@ -60,6 +60,12 @@ test('failed application submissions show an error instead of a false success st
   assert.match(scriptJs, /we could not send the confirmation email/i);
 });
 
+test('static localhost previews use the deployed API instead of an unavailable localhost backend', () => {
+  assert.match(scriptJs, /const localApiOrigin = \["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)\s*&& \["3000", "5000"\]\.includes\(window\.location\.port\)\s*\?\s*window\.location\.origin\s*:\s*null;/);
+  assert.match(scriptJs, /"https:\/\/certicheck-backend-8hu3\.onrender\.com\/api"/);
+  assert.match(indexHtml, /script\.js\?v=20261002-application-api/);
+});
+
 test('forgot-password OTP screen provides a resend control with a 40-second cooldown', () => {
   assert.match(indexHtml, /id="resendResetOtpBtn"[^>]*disabled>Resend code in 40s/);
   assert.match(scriptJs, /FORGOT_OTP_RESEND_COOLDOWN_MS = 40_000/);
