@@ -25,24 +25,7 @@ let adminReviewFilters = {
   status: 'all',
   sort: 'newest'
 };
-let adminPollTimer = null;
 let adminDashboardRequest = null;
-
-function startAdminDashboardPolling() {
-  if (adminPollTimer) return;
-  adminPollTimer = setInterval(() => {
-    if (isAdminLoggedIn()) {
-      loadAdminDashboard().catch(() => {});
-    }
-  }, 5000);
-}
-
-function stopAdminDashboardPolling() {
-  if (adminPollTimer) {
-    clearInterval(adminPollTimer);
-    adminPollTimer = null;
-  }
-}
 
 let adminState = {
   token: localStorage.getItem(ADMIN_TOKEN_KEY) || "",
@@ -272,7 +255,6 @@ function setAdminState(enabled, user = null) {
 
   if (enabled) {
     sessionStorage.setItem(ADMIN_SESSION_KEY, "1");
-    startAdminDashboardPolling();
     if (loginCard) loginCard.style.display = "none";
     if (dashboard) dashboard.style.display = "flex";
     if (statsSection) statsSection.style.display = 'block';
@@ -306,7 +288,6 @@ function setAdminState(enabled, user = null) {
   sessionStorage.removeItem(ADMIN_SESSION_KEY);
   localStorage.removeItem(ADMIN_TOKEN_KEY);
   localStorage.removeItem(ADMIN_USER_KEY);
-  stopAdminDashboardPolling();
   adminState.token = "";
   adminState.user = null;
   if (loginCard) loginCard.style.display = "block";

@@ -78,11 +78,11 @@ test('login guidance explains the default password and required password change'
   assert.match(indexHtml, /default password is <strong>password<\/strong>.*must change it before you can access your account/i);
 });
 
-test('admin dashboard refreshes for successful applications without manual reload', () => {
-  assert.match(adminJs, /startAdminDashboardPolling\(\)/);
-  assert.match(adminJs, /loadAdminDashboard\(\)\.catch\(\(\) => \{\}\);/);
-  assert.match(adminJs, /}, 5000\)/);
-  assert.match(adminJs, /stopAdminDashboardPolling\(\)/);
+test('admin dashboard avoids automatic refreshes and refreshes after admin actions', () => {
+  assert.doesNotMatch(adminJs, /setInterval|startAdminDashboardPolling|stopAdminDashboardPolling/);
+  assert.match(adminJs, /async function handleApplicationAction[\s\S]*?await loadAdminDashboard\(\);/);
+  assert.match(adminJs, /async function handleBulkAction[\s\S]*?await loadAdminDashboard\(\);/);
+  assert.match(adminJs, /if \(enabled\)[\s\S]*?loadAdminDashboard\(\);/);
 });
 
 test('admin actions show a warning when notification delivery fails', () => {
