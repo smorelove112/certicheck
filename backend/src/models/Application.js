@@ -95,40 +95,46 @@ class Application {
       } : null;
     }
 
+    const defaultPasswordHash = await User.getDefaultIssuerPasswordHash();
     const result = await pool.query(
-      `UPDATE pending_applications
-       SET status = 'approved', reviewed_at = NOW(), reviewer_id = $1,
-           processed_by_admin_id = $1, processed_by_admin_name = $3,
-           processed_by_admin_profile_picture_url = $4,
-           action_type = 'APPROVED', processed_at = NOW()
-       WHERE id = $2
-       RETURNING id, issuer_id, organization_name, contact_name, contact_email, status, reviewed_at,
-                 processed_by_admin_id, processed_by_admin_name, processed_by_admin_profile_picture_url,
-                 action_type, processed_at`,
-      [reviewerId, appId, adminName, adminPicture]
-    );
-
-    if (result.rows[0]) {
-      await pool.query(
-        `UPDATE issuer_profiles
+      `WITH approved_application AS (
+         UPDATE pending_applications
+         SET status = 'approved', reviewed_at = NOW(), reviewer_id = $1,
+             processed_by_admin_id = $1, processed_by_admin_name = $3,
+             processed_by_admin_profile_picture_url = $4,
+             action_type = 'APPROVED', processed_at = NOW()
+         WHERE id = $2
+         RETURNING id, issuer_id, organization_name, contact_name, contact_email, status, reviewed_at,
+                   processed_by_admin_id, processed_by_admin_name, processed_by_admin_profile_picture_url,
+                   action_type, processed_at
+       ),
+       updated_profile AS (
+         UPDATE issuer_profiles
          SET status = 'approved', approval_timestamp = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [result.rows[0].issuer_id]
-      );
-
-      const profile = await pool.query(
-        'SELECT user_id FROM issuer_profiles WHERE id = $1 LIMIT 1',
-        [result.rows[0].issuer_id]
-      );
-
-      if (profile.rows[0]?.user_id) {
-        await User.approveAccount(profile.rows[0].user_id);
-        await pool.query(
-          `UPDATE users SET user_type = 'issuer', is_active = TRUE, updated_at = NOW() WHERE id = $1`,
-          [profile.rows[0].user_id]
-        );
-      }
-    }
+         FROM approved_application
+         WHERE issuer_profiles.id = approved_application.issuer_id
+         RETURNING issuer_profiles.user_id
+       ),
+       activated_user AS (
+         UPDATE users
+         SET password_hash = CASE
+               WHEN users.is_active = FALSE AND COALESCE(users.user_type, 'user') != 'admin'
+               THEN $5 ELSE users.password_hash
+             END,
+             is_active = TRUE,
+             must_change_password = CASE
+               WHEN users.is_active = FALSE AND COALESCE(users.user_type, 'user') != 'admin'
+               THEN TRUE ELSE users.must_change_password
+             END,
+             user_type = 'issuer',
+             updated_at = NOW()
+         FROM updated_profile
+         WHERE users.id = updated_profile.user_id
+         RETURNING users.id
+       )
+       SELECT * FROM approved_application`,
+      [reviewerId, appId, adminName, adminPicture, defaultPasswordHash]
+    );
 
     return result.rows[0];
   }
@@ -148,25 +154,27 @@ class Application {
     }
 
     const result = await pool.query(
-      `UPDATE pending_applications
-       SET status = 'rejected', reviewed_at = NOW(), reviewer_id = $1,
-           processed_by_admin_id = $1, processed_by_admin_name = $3,
-           processed_by_admin_profile_picture_url = $4,
-           action_type = 'REJECTED', processed_at = NOW()
-       WHERE id = $2
-       RETURNING id, issuer_id, organization_name, contact_name, contact_email, status, reviewed_at,
-                 processed_by_admin_id, processed_by_admin_name, processed_by_admin_profile_picture_url,
-                 action_type, processed_at`,
+      `WITH rejected_application AS (
+         UPDATE pending_applications
+         SET status = 'rejected', reviewed_at = NOW(), reviewer_id = $1,
+             processed_by_admin_id = $1, processed_by_admin_name = $3,
+             processed_by_admin_profile_picture_url = $4,
+             action_type = 'REJECTED', processed_at = NOW()
+         WHERE id = $2
+         RETURNING id, issuer_id, organization_name, contact_name, contact_email, status, reviewed_at,
+                   processed_by_admin_id, processed_by_admin_name, processed_by_admin_profile_picture_url,
+                   action_type, processed_at
+       ),
+       updated_profile AS (
+         UPDATE issuer_profiles
+         SET status = 'rejected', updated_at = NOW()
+         FROM rejected_application
+         WHERE issuer_profiles.id = rejected_application.issuer_id
+         RETURNING issuer_profiles.id
+       )
+       SELECT * FROM rejected_application`,
       [reviewerId, appId, adminName, adminPicture]
     );
-
-    if (result.rows[0]?.issuer_id) {
-      await pool.query(
-        `UPDATE issuer_profiles SET status = 'rejected', updated_at = NOW() WHERE id = $1`,
-        [result.rows[0].issuer_id]
-      );
-    }
-
     return result.rows[0];
   }
 

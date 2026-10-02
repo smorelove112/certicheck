@@ -62,7 +62,7 @@ test('failed application submissions show an error instead of a false success st
 test('static localhost previews use the deployed API instead of an unavailable localhost backend', () => {
   assert.match(scriptJs, /const localApiOrigin = \["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)\s*&& \["3000", "5000"\]\.includes\(window\.location\.port\)\s*\?\s*window\.location\.origin\s*:\s*null;/);
   assert.match(scriptJs, /"https:\/\/certicheck-backend-8hu3\.onrender\.com\/api"/);
-  assert.match(indexHtml, /script\.js\?v=20261002-instant-button-feedback/);
+  assert.match(indexHtml, /script\.js\?v=20261002-optional-issuer-wallet/);
 });
 
 test('forgot-password and OTP recovery interfaces are removed for both user roles', () => {
@@ -78,13 +78,27 @@ test('admin dashboard avoids automatic refreshes and refreshes after admin actio
   assert.match(adminJs, /await handleApplicationAction\(action, id, button\)/);
   assert.match(adminJs, /async function handleApplicationAction[\s\S]*?showAdminToast\(`Could not \$\{action\} the application: \$\{err\.message\}`/);
   assert.match(adminJs, /async function handleApplicationAction[\s\S]*?void loadAdminDashboard\(\);/);
-  assert.match(adminJs, /async function handleBulkAction[\s\S]*?showAdminToast\(err\.message \|\| 'Bulk action failed\.'/);
+  assert.match(adminJs, /async function handleRevokeAction[\s\S]*?renderAdminDashboard\(\);[\s\S]*?void loadAdminDashboard\(\);/);
+  assert.doesNotMatch(adminJs.match(/async function handleRevokeAction[\s\S]*?\n}/)?.[0] || '', /await loadAdminDashboard/);
+  assert.match(adminJs, /async function handleBulkAction[\s\S]*?Promise\.allSettled/);
+  assert.match(adminJs, /async function handleBulkAction[\s\S]*?of \$\{selected\.length\} applications/);
   assert.match(adminJs, /async function handleBulkAction[\s\S]*?withButtonLoading\(button,[\s\S]*?Approving/);
+  assert.match(adminJs, /function applyApplicationDecisionLocally[\s\S]*?renderAdminDashboard\(\);/);
   assert.match(adminJs, /if \(enabled\)[\s\S]*?loadAdminDashboard\(\);/);
+});
+
+test('issuer wallet is optional and no-wallet issuance is identified as off-chain', () => {
+  assert.match(indexHtml, /Wallet connection is optional/);
+  assert.match(scriptJs, /async function issueCertificateWithoutWallet\(payload, token\)/);
+  assert.match(scriptJs, /connectedWallet\s*\?\s*await issueCertificateWithPhantomWallet[\s\S]*?:\s*await issueCertificateWithoutWallet/);
+  assert.match(scriptJs, /const connectedWallet = getActivePhantomWalletAddress\(\);/);
+  assert.match(scriptJs, /This certificate is recorded in Certicheck but was not issued to Solana/);
+  assert.match(scriptJs, /else if \(isOffChain\) addMetadata\('Blockchain', 'Off-chain record; not verified on Solana'\)/);
 });
 
 test('local admin preview uses the local backend instead of the deployed API', () => {
   assert.match(adminJs, /:\s*`\$\{window\.location\.protocol\}\/\/\$\{window\.location\.hostname\}:5000`/);
+  assert.match(adminHtml, /admin\.js\?v=20261002-admin-action-fast/);
 });
 
 test('expired admin tokens clear the stale session and return to sign-in', () => {

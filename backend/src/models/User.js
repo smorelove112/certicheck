@@ -1,7 +1,23 @@
 const bcrypt = require('bcryptjs');
 const pool = require('../db/connection');
 
+let defaultIssuerPasswordHashPromise;
+
+function getDefaultIssuerPasswordHash() {
+  if (!defaultIssuerPasswordHashPromise) {
+    defaultIssuerPasswordHashPromise = bcrypt.hash('password', 10).catch(error => {
+      defaultIssuerPasswordHashPromise = null;
+      throw error;
+    });
+  }
+  return defaultIssuerPasswordHashPromise;
+}
+
 class User {
+  static getDefaultIssuerPasswordHash() {
+    return getDefaultIssuerPasswordHash();
+  }
+
   static normalizeEmail(email) {
     return String(email || '').trim().toLowerCase();
   }
@@ -61,7 +77,7 @@ class User {
   }
 
   static async approveAccount(userId) {
-    const hashedPassword = await bcrypt.hash('password', 10);
+    const hashedPassword = await getDefaultIssuerPasswordHash();
     const result = await pool.query(
       `UPDATE users
        SET password_hash = $1, is_active = TRUE, must_change_password = TRUE, updated_at = NOW()

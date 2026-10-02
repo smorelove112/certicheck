@@ -631,6 +631,34 @@ function bindAdminReviewControls() {
   });
 }
 
+function applyApplicationDecisionLocally(action, id, application) {
+  const applicationId = String(id);
+  const pendingIndex = adminState.pendingApps.findIndex(item => String(item.id) === applicationId);
+  if (pendingIndex === -1) return false;
+
+  const [pendingApplication] = adminState.pendingApps.splice(pendingIndex, 1);
+  const targetKey = action === 'approve' ? 'approvedApps' : 'rejectedApps';
+  const status = action === 'approve' ? 'approved' : 'rejected';
+  const targetAlreadyContainsApplication = adminState[targetKey].some(item => String(item.id) === applicationId);
+  const updatedApplication = { ...pendingApplication, ...application, status };
+  adminState[targetKey] = [
+    updatedApplication,
+    ...adminState[targetKey].filter(item => String(item.id) !== applicationId)
+  ];
+  adminState.approvedApps = adminState.approvedApps.filter(item => String(item.id) !== applicationId || targetKey === 'approvedApps');
+  adminState.rejectedApps = adminState.rejectedApps.filter(item => String(item.id) !== applicationId || targetKey === 'rejectedApps');
+
+  if (adminState.stats) {
+    adminState.stats.pendingApplications = Math.max(0, Number(adminState.stats.pendingApplications || 0) - 1);
+    if (action === 'approve' && !targetAlreadyContainsApplication) {
+      adminState.stats.approvedApplications = Number(adminState.stats.approvedApplications || 0) + 1;
+    }
+  }
+
+  renderAdminDashboard();
+  return true;
+}
+
 async function handleBulkAction(action, button) {
   const selected = [...document.querySelectorAll('.admin-row-select:checked')].map(input => input.dataset.id).filter(Boolean);
   if (!selected.length) {
@@ -639,16 +667,23 @@ async function handleBulkAction(action, button) {
   }
 
   await withButtonLoading(button, async () => {
-    try {
-      for (const id of selected) {
-        await requestJson(`/applications/${id}/${action === 'approve' ? 'approve' : 'reject'}`, { method: 'PUT' });
-      }
+    const decisions = await Promise.allSettled(selected.map(async id => {
+      const result = await requestJson(`/applications/${id}/${action}`, { method: 'PUT' });
+      if (result.success !== true) throw new Error(result.error || 'The application update was not confirmed.');
+      return { id, application: result.application };
+    }));
+    const successful = decisions.flatMap(decision => decision.status === 'fulfilled' ? [decision.value] : []);
+    const failed = decisions.flatMap(decision => decision.status === 'rejected' ? [decision.reason] : []);
+
+    successful.forEach(({ id, application }) => applyApplicationDecisionLocally(action, id, application));
+    if (successful.length) void loadAdminDashboard();
+
+    if (failed.length) {
+      const summary = `${successful.length} of ${selected.length} applications ${action === 'approve' ? 'approved' : 'rejected'}. ${failed.length} failed: ${failed[0].message || 'Request failed.'}`;
+      showAdminToast(summary, 'danger');
+    } else {
       const actionMessage = `${selected.length} application${selected.length > 1 ? 's were' : ' was'} ${action === 'approve' ? 'approved' : 'rejected'}.`;
       showAdminToast(actionMessage, 'success');
-      void loadAdminDashboard();
-    } catch (err) {
-      if (err.status === 401) return;
-      showAdminToast(err.message || 'Bulk action failed.', 'danger');
     }
   }, `${action === 'approve' ? 'Approving' : 'Rejecting'} ${selected.length}...`);
 }
@@ -844,7 +879,8 @@ async function handleApplicationAction(action, id, button) {
       const endpoint = action === "approve" ? `/applications/${id}/approve` : `/applications/${id}/reject`;
       const result = await requestJson(endpoint, { method: "PUT" });
       if (result.success !== true) throw new Error(result.error || 'The application update was not confirmed.');
-      const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application revoked and moved to revoked queue.';
+      applyApplicationDecisionLocally(action, id, result.application);
+      const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application rejected and moved to rejected queue.';
       showAdminToast(actionMessage, action === 'approve' ? 'success' : 'danger');
       void loadAdminDashboard();
       return true;
@@ -859,9 +895,21 @@ async function handleApplicationAction(action, id, button) {
 async function handleRevokeAction(id, button) {
   return withButtonLoading(button, async () => {
     try {
-      await requestJson(`/verify/${id}/revoke`, { method: "PUT" });
-      await loadAdminDashboard();
+      const result = await requestJson(`/verify/${id}/revoke`, { method: "PUT" });
+      adminState.checks = adminState.checks.filter(entry => String(entry.id) !== String(id));
+      if (result.entry) {
+        adminState.revoked = [
+          result.entry,
+          ...adminState.revoked.filter(entry => String(entry.id) !== String(id))
+        ];
+      }
+      if (adminState.stats) {
+        adminState.stats.totalVerifications = Math.max(0, Number(adminState.stats.totalVerifications || 0) - 1);
+        adminState.stats.revokedCertificates = Number(adminState.stats.revokedCertificates || 0) + 1;
+      }
+      renderAdminDashboard();
       showAdminToast('Certificate revoked.', 'success');
+      void loadAdminDashboard();
       return true;
     } catch (err) {
       if (err.status === 401) return false;

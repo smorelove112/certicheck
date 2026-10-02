@@ -152,12 +152,6 @@ async function safeQuery(text, params = []) {
 
 router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
   try {
-    if (process.env.SOLANA_ENABLE === 'true') {
-      return res.status(409).json({
-        error: 'On-chain issuance must be signed by the approved issuer wallet. Use the IPFS pin and wallet-signed issuance flow.'
-      });
-    }
-
     const {
       certificateId,
       holderName,
@@ -175,6 +169,12 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
     const trimmedCertificateType = typeof certificateType === 'string' ? certificateType.trim() : '';
     const trimmedIssuerName = typeof issuerName === 'string' ? issuerName.trim() : '';
     const trimmedIssuerWallet = typeof issuerWallet === 'string' ? issuerWallet.trim() : '';
+
+    if (onChain === true) {
+      return res.status(409).json({
+        error: 'On-chain issuance must be signed by the approved issuer wallet. Connect a wallet and use the wallet-signed issuance flow.'
+      });
+    }
 
     if (
       !trimmedCertificateId ||
@@ -278,7 +278,7 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
       ipfsCid = ipfsResult?.cid || null;
       ipfsUri = ipfsResult?.uri || null;
       if (!ipfsCid) warnings.push('Certificate was saved, but IPFS did not return a content identifier.');
-      else issuancePath = ipfsSource === 'pinata' ? 'ipfs-pinned' : 'fallback-hash';
+      else issuancePath = ipfsSource === 'pinata' ? 'off-chain-ipfs-pinned' : 'off-chain-fallback-hash';
     } catch (ipfsErr) {
       ipfsSource = process.env.PINATA_JWT ? 'pinata-failed' : 'fallback';
       console.error(`Certificate ${trimmedCertificateId} was saved, but IPFS metadata pinning failed: ${ipfsErr.message}`);
@@ -287,8 +287,8 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
         : 'Certificate was saved, but IPFS metadata could not be pinned.');
     }
 
-    if (onChain === true) {
-      warnings.push('This endpoint does not issue on-chain. Enable Solana mode and use the issuer wallet-signed flow.');
+    if (process.env.SOLANA_ENABLE === 'true') {
+      warnings.push('Issued without connecting a wallet. This certificate is off-chain and is not independently verified by Solana.');
     }
 
     if (dbCertificate) {
@@ -385,6 +385,7 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
         attachment_uri: attachmentDetails?.uri || null,
         attachment_source: attachmentDetails?.source || null,
         blockchain_transaction_id: blockchainTransactionId,
+        on_chain: false,
         certificate_type: trimmedCertificateType,
         status: 'valid',
         issued_at: dbCertificate?.issued_at || issuedAt,
@@ -892,8 +893,8 @@ router.get('/lookup/:certificateId', async (req, res) => {
       console.warn('Certificate lookup in certificates table failed:', dbErr.message);
     }
 
-    const requireOnChain = process.env.SOLANA_ENABLE === 'true' ||
-      Boolean(storedCertificate?.blockchain_transaction_id);
+    const requireOnChain = Boolean(storedCertificate?.blockchain_transaction_id) ||
+      (process.env.SOLANA_ENABLE === 'true' && !storedCertificate);
     if (requireOnChain) {
       const onChainCertificate = await lookupCertificateOnChain(certificateId);
       if (!onChainCertificate) {
@@ -936,6 +937,7 @@ router.get('/lookup/:certificateId', async (req, res) => {
         },
         status: storedCertificate.status,
         onChain: false,
+        verificationMode: 'off-chain',
         blockchainTransactionStatus: null,
         verifiedAt: storedCertificate.issued_at
       });

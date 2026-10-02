@@ -572,7 +572,7 @@
       <div class="page-header">
         <div class="page-tag">Issuer Dashboard</div>
         <h1 class="page-title">Issue a <span class="gradient-text">Certificate</span></h1>
-        <p class="page-desc">Pin certificate metadata to IPFS, then issue it on Solana devnet with the approved issuer wallet.</p>
+        <p class="page-desc">Connect an approved issuer wallet to issue on Solana devnet, or issue an off-chain certificate without connecting a wallet.</p>
       </div>
 
       <div class="form-card">
@@ -624,7 +624,7 @@
             <label class="field-label" for="issuerWallet">Issuer Wallet</label>
             <input class="field-input font-mono" id="issuerWallet" placeholder="Optional wallet address" type="text"/>
           </div>
-          <p class="small-text">Issuance requires a connected Phantom wallet on devnet and an IPFS pinning service configured by the backend.</p>
+          <p class="small-text">Wallet connection is optional. Connect Phantom to issue on Solana devnet; without a wallet, the certificate is recorded off-chain and clearly identified as not blockchain-verified. Pinata is used for IPFS storage when configured.</p>
           <div id="issuerError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
           <button class="btn-primary" id="issuerSubmitBtn" style="width:100%">Issue Certificate</button>
           <div id="issuerResult" style="margin-top:16px"></div>
@@ -713,6 +713,6 @@
     </div>
   </footer>
 
-  <script src="script.js?v=20261002-instant-button-feedback"></script>
+  <script src="script.js?v=20261002-optional-issuer-wallet"></script>
 </body>
 </html>

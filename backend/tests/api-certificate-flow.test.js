@@ -321,6 +321,87 @@ test('certificate lifecycle persists metadata and returns database, IPFS, and re
   }
 });
 
+test('approved issuer can issue without a wallet while Solana mode is enabled', async () => {
+  const originalQuery = pool.query;
+  const originalSolanaEnable = process.env.SOLANA_ENABLE;
+  process.env.SOLANA_ENABLE = 'true';
+  const certificateId = `CERT-OFFCHAIN-${Date.now()}`;
+  let savedCertificate = null;
+  pool.query = async (sql, params = []) => {
+    if (sql.includes('FROM users u')) {
+      return { rows: [{ id: 1, user_type: 'issuer', is_active: true, issuer_status: 'approved' }] };
+    }
+    if (sql.includes('SELECT certificate_id FROM certificates')) return { rows: [] };
+    if (sql.includes('INSERT INTO certificates')) {
+      savedCertificate = {
+        certificate_id: params[0],
+        issuer_user_id: params[1],
+        issuer_name: params[2],
+        issuer_wallet: params[3],
+        holder_name: params[4],
+        holder_email: params[5],
+        certificate_type: params[6],
+        status: params[7],
+        ipfs_cid: params[8],
+        ipfs_uri: params[9],
+        blockchain_transaction_id: params[10],
+        metadata: JSON.parse(params[11]),
+        issued_at: params[12],
+        created_at: params[12],
+        revoked_at: null
+      };
+      return { rows: [savedCertificate] };
+    }
+    if (sql.includes('UPDATE certificates')) {
+      savedCertificate = {
+        ...savedCertificate,
+        ipfs_cid: params[0],
+        ipfs_uri: params[1],
+        blockchain_transaction_id: params[8],
+        metadata: JSON.parse(params[7])
+      };
+      return { rows: [savedCertificate] };
+    }
+    if (sql.includes('FROM certificates WHERE certificate_id')) {
+      return { rows: params[0] === certificateId && savedCertificate ? [savedCertificate] : [] };
+    }
+    return { rows: [] };
+  };
+
+  try {
+    const baseUrl = `http://localhost:${process.env.TEST_SERVER_PORT}/api/certificates`;
+    const issueResponse = await fetch(`${baseUrl}/issue`, {
+      method: 'POST',
+      headers: demoHeaders,
+      body: JSON.stringify({
+        certificateId,
+        holderName: 'No Wallet Holder',
+        holderEmail: 'no-wallet@example.com',
+        certificateType: 'Completion Certificate',
+        issuerName: 'Approved Issuer',
+        issuerWallet: '',
+        onChain: false
+      })
+    });
+    assert.equal(issueResponse.status, 201);
+    const issued = await issueResponse.json();
+    assert.equal(issued.certificate.on_chain, false);
+    assert.equal(issued.certificate.blockchain_transaction_id, null);
+    assert.ok(issued.warnings.some(warning => warning.includes('off-chain')));
+
+    const lookupResponse = await fetch(`${baseUrl}/lookup/${certificateId}`);
+    assert.equal(lookupResponse.status, 200);
+    const lookup = await lookupResponse.json();
+    assert.equal(lookup.status, 'valid');
+    assert.equal(lookup.onChain, false);
+    assert.equal(lookup.verificationMode, 'off-chain');
+  } finally {
+    pool.query = originalQuery;
+    if (originalSolanaEnable === undefined) delete process.env.SOLANA_ENABLE;
+    else process.env.SOLANA_ENABLE = originalSolanaEnable;
+  }
+});
+
 test('backend certificate issue, lookup, and revoke API flow', async () => {
   const port = process.env.TEST_SERVER_PORT;
   const baseUrl = `http://localhost:${port}`;

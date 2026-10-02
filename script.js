@@ -402,6 +402,13 @@ function getConnectedWalletAddress() {
   return storedUser?.wallet || '';
 }
 
+function getActivePhantomWalletAddress() {
+  const provider = getPhantomProvider();
+  return provider?.isConnected && provider.publicKey
+    ? provider.publicKey.toString()
+    : '';
+}
+
 function persistWalletAddress(value) {
   const wallet = value ? String(value).trim() : '';
   if (wallet) localStorage.setItem('certicheck_wallet_address', wallet);
@@ -485,7 +492,7 @@ function updateWalletButtonUi(button, walletAddress) {
 }
 
 function updateWalletActionAvailability() {
-  const connectedWallet = getConnectedWalletAddress();
+  const connectedWallet = getActivePhantomWalletAddress();
   const hasWallet = Boolean(connectedWallet);
 
   document.querySelectorAll('[data-wallet-connect]').forEach((button) => {
@@ -741,6 +748,21 @@ async function issueCertificateWithPhantomWallet(payload, token) {
     throw new Error(`On-chain certificate issued (${signature}), but backend recording failed: ${recordResult.error || 'please contact support with the transaction signature'}`);
   }
   return recordResult;
+}
+
+async function issueCertificateWithoutWallet(payload, token) {
+  if (!token) throw new Error('Sign in again before issuing a certificate.');
+  const response = await fetch(`${API_BASE_URL}/certificates/issue`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ ...payload, issuerWallet: '', onChain: false })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'Unable to issue the certificate without a wallet.');
+  return result;
 }
 
 async function revokeCertificateWithPhantomWallet(certificateId, reason, issuerWallet) {
@@ -1234,6 +1256,7 @@ function getCertificateIssuanceSuccessMarkup(certificate, warnings = []) {
   const issuedAt = certificate.issuedAt || certificate.issued_at || certificate.created_at;
   const status = String(certificate.status || certificate.verification_status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid';
   const transaction = certificate.transaction || certificate.blockchainTransactionId || certificate.blockchain_transaction_id;
+  const onChain = certificate.onChain === true || certificate.on_chain === true || Boolean(transaction);
   const ipfsCid = certificate.ipfsCid || certificate.ipfs_cid;
   const ipfsSource = certificate.ipfsSource || certificate.ipfs_source;
   const transactionMarkup = transaction
@@ -1252,11 +1275,11 @@ function getCertificateIssuanceSuccessMarkup(certificate, warnings = []) {
       <div class="celebration-confetti">${confetti}</div>
     </div>
     <div class="issuance-celebration-content">
-      <div class="celebration-kicker"><span aria-hidden="true">✦</span> On-chain issuance complete</div>
+      <div class="celebration-kicker"><span aria-hidden="true">✦</span> ${onChain ? 'On-chain issuance complete' : 'Certificate issuance complete · off-chain'}</div>
       <h3 id="issuanceCelebrationTitle">Congratulations, ${holderName}!</h3>
       <p class="celebration-subtitle">Your ${certificateType} certificate is now issued.</p>
       <div class="mini-certificate-preview" aria-label="Mini certificate preview">
-        <div class="mini-certificate-brand"><span class="mini-certificate-seal" aria-hidden="true">✓</span><span>Certicheck <small>Solana credential</small></span></div>
+        <div class="mini-certificate-brand"><span class="mini-certificate-seal" aria-hidden="true">✓</span><span>Certicheck <small>${onChain ? 'Solana credential' : 'Digital credential'}</small></span></div>
         <div class="mini-certificate-heading">Certificate of Achievement</div>
         <div class="mini-certificate-type">${certificateType}</div>
         <div class="mini-certificate-recipient">Proudly presented to <strong>${holderName}</strong></div>
@@ -1894,9 +1917,12 @@ function VerificationResultModal({ response, certificateId = '' }) {
   dialog.dataset.state = state;
   dialog.querySelector('#verificationStatusIcon').textContent = statusContent.icon;
   dialog.querySelector('#verificationResultTitle').textContent = statusContent.title;
+  const isOffChain = response?.onChain === false;
   const message = state === 'not-found' && response?.error
     ? response.error
-    : statusContent.message;
+    : isOffChain && state === 'valid'
+      ? 'This certificate is recorded in Certicheck but was not issued to Solana.'
+      : statusContent.message;
   dialog.querySelector('#verificationResultMessage').textContent = state === 'revoked' && revokedAt
     ? `${message} Revoked on ${new Date(revokedAt).toLocaleString()}.`
     : message;
@@ -1945,6 +1971,8 @@ function VerificationResultModal({ response, certificateId = '' }) {
       });
     }
     addMetadata('Status', statusContent.title);
+    if (response?.onChain === true) addMetadata('Blockchain', 'Verified on Solana');
+    else if (isOffChain) addMetadata('Blockchain', 'Off-chain record; not verified on Solana');
     if (state === 'revoked' && revokedAt) {
       addMetadata('Revoked', new Date(revokedAt).toLocaleString());
     }
@@ -2559,7 +2587,7 @@ async function initIssuerDashboard() {
     };
   }
 
-  const existingWallet = getConnectedWalletAddress();
+  const existingWallet = getActivePhantomWalletAddress();
   if (existingWallet && walletBadge) {
     walletBadge.textContent = formatWalletShort(existingWallet);
     const wInput = document.getElementById('issuerWallet');
@@ -2625,8 +2653,11 @@ async function initIssuerDashboard() {
         } : null
       };
 
-      payload.issuerWallet = getConnectedWalletAddress() || '';
-      const data = await issueCertificateWithPhantomWallet(payload, getAuthToken());
+      const connectedWallet = getActivePhantomWalletAddress();
+      payload.issuerWallet = connectedWallet || '';
+      const data = connectedWallet
+        ? await issueCertificateWithPhantomWallet(payload, getAuthToken())
+        : await issueCertificateWithoutWallet(payload, getAuthToken());
 
       const certificate = data.certificate || {};
       const certificateId = certificate.certificate_id || payload.certificateId;
@@ -2639,7 +2670,6 @@ async function initIssuerDashboard() {
       }
 
       const status = String(certificate.status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid';
-      const txId = certificate.blockchain_transaction_id || 'Not issued on-chain';
       const issuedAt = certificate.issued_at || certificate.created_at || new Date().toISOString();
       const ipfsSource = certificate.ipfs_source || 'fallback';
 
@@ -2673,9 +2703,10 @@ async function initIssuerDashboard() {
         issuerName: payload.issuerName,
         issuedAt,
         status,
-        transaction: txId,
+        onChain: Boolean(certificate.blockchain_transaction_id),
+        transaction: certificate.blockchain_transaction_id || null,
         ipfsCid: certificate.ipfs_cid,
-        ipfsSource,
+        ipfsSource
       };
       resultEl.innerHTML = getCertificateIssuanceSuccessMarkup(successDetails, data.warnings || []);
       wireMiniCertificateDownload(resultEl, successDetails);

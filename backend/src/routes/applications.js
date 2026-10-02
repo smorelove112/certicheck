@@ -4,25 +4,16 @@ const User = require('../models/User');
 const pool = require('../db/connection');
 const { verifyToken, verifyAdmin, verifyAdminToken, logAudit } = require('../middleware/auth');
 const { isValidEmail } = require('../utils/validation');
-const Admin = require('../models/Admin');
-const demoAdminStore = require('../services/demoAdminStore');
-const { DEFAULT_ADMIN_ACCOUNTS } = require('../services/defaultAdminAccounts');
-
 const router = express.Router();
 
-async function getAdminActor(req) {
+function getAdminActor(req) {
   const id = req.user.adminId || req.user.id;
-  const profile = process.env.DEMO_MODE === 'true'
-    ? await demoAdminStore.findById(id, DEFAULT_ADMIN_ACCOUNTS)
-    : await Admin.findById(id);
   return {
     id,
-    name: profile?.name || req.user.name ||
+    name: req.user.name ||
       [req.user.firstName, req.user.lastName].filter(Boolean).join(' ') ||
       req.user.email || 'Admin',
-    profilePicture: profile?.profile_picture_url
-      ? `/api/auth/admin/${id}/profile-picture`
-      : req.user.profilePicture || null
+    profilePicture: req.user.profilePicture || null
   };
 }
 
