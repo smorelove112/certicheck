@@ -11,6 +11,25 @@ function configuredSmtpPassword() {
     .replace(/\s+/g, '');
 }
 
+function configuredSmtpPort() {
+  const port = Number.parseInt(process.env.SMTP_PORT || '465', 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('SMTP_PORT must be a valid port number between 1 and 65535.');
+  }
+  return port;
+}
+
+function configuredSmtpSecure(port) {
+  if (process.env.SMTP_SECURE === undefined || process.env.SMTP_SECURE.trim() === '') {
+    return port === 465;
+  }
+  const setting = process.env.SMTP_SECURE.trim().toLowerCase();
+  if (setting !== 'true' && setting !== 'false') {
+    throw new Error('SMTP_SECURE must be set to true or false.');
+  }
+  return setting === 'true';
+}
+
 function getSmtpFailureReason(error) {
   const code = String(error?.code || '').toUpperCase();
   if (code === 'EMAIL_NOT_CONFIGURED') {
@@ -108,22 +127,22 @@ class EmailService {
 
     const smtpUser = configuredSmtpUser();
     const smtpPassword = configuredSmtpPassword();
-    const hasCustomSmtp = Boolean(process.env.SMTP_HOST && smtpUser && smtpPassword);
+    const emailService = process.env.EMAIL_SERVICE || 'gmail';
+    const smtpHost = process.env.SMTP_HOST || (emailService.toLowerCase() === 'gmail' ? 'smtp.gmail.com' : '');
+    const hasCustomSmtp = Boolean(smtpHost && smtpUser && smtpPassword);
     const hasEmailService = Boolean(process.env.EMAIL_USER && smtpPassword);
 
-    // 1. Custom SMTP configuration
+    // 1. Use explicit SMTP settings for Gmail and configured SMTP providers.
     if (hasCustomSmtp) {
-      console.log(`✓ EmailService: Using custom SMTP (${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587})`);
-      const port = Number(process.env.SMTP_PORT) || 587;
+      const port = configuredSmtpPort();
+      console.log(`✓ EmailService: Using SMTP on ${smtpHost}:${port}`);
       this.transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
+        host: smtpHost,
         port,
-        secure: process.env.SMTP_SECURE === undefined
-          ? port === 465
-          : process.env.SMTP_SECURE.toLowerCase() === 'true',
+        secure: configuredSmtpSecure(port),
         connectionTimeout: 10000,
         greetingTimeout: 10000,
-        socketTimeout: 30000,
+        socketTimeout: 10000,
         auth: {
           user: smtpUser,
           pass: smtpPassword
@@ -132,15 +151,14 @@ class EmailService {
       return;
     }
 
-    // 2. Pre-configured email service (e.g. Gmail)
+    // 2. Other Nodemailer well-known services.
     if (hasEmailService) {
-      const service = process.env.EMAIL_SERVICE || 'gmail';
-      console.log(`✓ EmailService: Using ${service} transport`);
+      console.log(`✓ EmailService: Using ${emailService} transport`);
       this.transporter = nodemailer.createTransport({
-        service,
+        service: emailService,
         connectionTimeout: 10000,
         greetingTimeout: 10000,
-        socketTimeout: 30000,
+        socketTimeout: 10000,
         auth: {
           user: process.env.EMAIL_USER,
           pass: smtpPassword
@@ -201,7 +219,7 @@ class EmailService {
       return true;
     } catch (err) {
       this.lastVerificationIssue = getSmtpFailureReason(err);
-      console.error(`EmailService configuration error: ${this.lastVerificationIssue}`);
+      console.warn(`EmailService warning: ${this.lastVerificationIssue}`);
       return false;
     }
   }

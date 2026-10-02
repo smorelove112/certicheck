@@ -209,11 +209,9 @@ async function startServer() {
       console.log('✓ Running in DEMO_MODE — skipping database initialization');
     }
 
-    const emailReady = await EmailService.verifyTransporter();
-    if (!emailReady && process.env.NODE_ENV === 'production') {
-      const emailStatus = EmailService.getReadiness();
-      throw new Error(emailStatus.issue || 'SMTP is not configured and verified. Check the backend email environment variables.');
-    }
+    void EmailService.verifyTransporter().catch(error => {
+      EmailService.recordDeliveryFailure(error, 'startup verification');
+    });
 
     app.listen(PORT, HOST, () => {
       console.log(`✓ Certicheck backend running on http://${HOST}:${PORT}`);

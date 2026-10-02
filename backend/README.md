@@ -45,10 +45,12 @@ DB_NAME=certicheck
 JWT_SECRET=your_secret_key_here
 JWT_EXPIRE=7d
 ADMIN_EMAIL=admin@certicheck.com
-# Gmail: use a Google App Password with 2-Step Verification enabled.
-EMAIL_SERVICE=gmail
-EMAIL_USER=your-gmail@gmail.com
-# Set EMAIL_PASSWORD only in Render's Environment settings; never commit it.
+# Gmail SMTP: use a Google App Password with 2-Step Verification enabled.
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=your-gmail@gmail.com
+# Set SMTP_PASS only in Render's Environment settings; never commit it.
 EMAIL_FROM=CertiCheck <your-gmail@gmail.com>
 
 # Alternative SMTP providers use SMTP_HOST, SMTP_PORT, SMTP_SECURE,
@@ -66,7 +68,7 @@ CERTIFICATE_PROGRAM_ID=4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob
 
 On first admin authentication, the backend seeds three individual admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change each account's password before exposing a deployment publicly. Admin names, avatars, and password changes are personal to each account. The Admin Dashboard provides email OTP recovery for an individual admin.
 
-Signup, login, and password reset accept valid email addresses from any domain. For Gmail, set `EMAIL_SERVICE=gmail`, `EMAIL_USER`, `EMAIL_PASSWORD`, and `EMAIL_FROM` in the backend deployment environment. `EMAIL_PASSWORD` must be a Google App Password generated while 2-Step Verification is enabled; a regular Google account password will not work. Set `EMAIL_FROM` to the same mailbox as `EMAIL_USER`. On Render, add these under the backend service's **Environment** settings, never in a tracked file, then redeploy. For a different SMTP provider, set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and a matching `EMAIL_FROM`. The backend verifies SMTP at startup and refuses to start in production if email is missing or cannot be verified; `/health` reports sanitized configuration, provider, verification state, and a non-secret diagnostic reason. SMTP connection and greeting time out after 10 seconds to prevent requests hanging indefinitely. Application submissions are saved first and their confirmation emails are sent asynchronously; email-delivery errors are logged. Configure SPF/DKIM with your mail provider. Development mode logs OTPs to the backend console instead of sending email. Password-reset OTPs expire after 10 minutes, allow at most five attempts, and are consumed after a successful reset.
+Signup, login, and password reset accept valid email addresses from any domain. For Gmail, configure `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER`, `SMTP_PASS`, and `EMAIL_FROM` in the backend deployment environment. `SMTP_PASS` must be a Google App Password generated while 2-Step Verification is enabled; a regular Google account password will not work. Set `EMAIL_FROM` to the same mailbox as `SMTP_USER`. Port 587 is also supported with `SMTP_SECURE=false`. On Render, add credentials under the backend service's **Environment** settings, never in a tracked file, then redeploy. The legacy `EMAIL_USER` and `EMAIL_PASSWORD` aliases remain supported. SMTP verification runs in the background during startup; missing credentials or connection failures are logged as warnings and do not prevent the API from starting. `/health` reports sanitized configuration, provider, verification state, and a non-secret diagnostic reason. SMTP connection, greeting, and socket operations time out after 10 seconds to prevent requests hanging indefinitely. Application submissions are saved first and their confirmation emails are sent asynchronously; email-delivery errors are logged. Configure SPF/DKIM with your mail provider. Development mode logs OTPs to the backend console instead of sending email. Password-reset OTPs expire after 10 minutes, allow at most five attempts, and are consumed after a successful reset.
 
 Issuer application submissions return as soon as the application is saved. The confirmation email and audit-log write run asynchronously so a slow SMTP server does not hold the applicant on the submit screen; the response marks the email as pending with `notification.emailPending: true`.
 
