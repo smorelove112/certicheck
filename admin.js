@@ -4,7 +4,7 @@ const DEFAULT_API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com";
 const localApiOrigin = ["localhost", "127.0.0.1"].includes(window.location.hostname)
   ? (["3000", "5000"].includes(window.location.port)
     ? window.location.origin
-    : null)
+    : `${window.location.protocol}//${window.location.hostname}:5000`)
   : null;
 const API_BASE_URL = window.CERTICHECK_API_BASE_URL
   ? window.CERTICHECK_API_BASE_URL.replace(/\/api\/?$/, "")
@@ -613,18 +613,22 @@ async function handleBulkAction(action, button) {
   }
   try {
     let emailFailures = 0;
+    let pendingEmailCount = 0;
     for (const id of selected) {
       const result = await requestJson(`/applications/${id}/${action === 'approve' ? 'approve' : 'reject'}`, { method: 'PUT' });
-      if (result.notification?.emailSent === false) emailFailures += 1;
+      if (result.notification?.emailPending) pendingEmailCount += 1;
+      else if (result.notification?.emailSent === false) emailFailures += 1;
     }
     const actionMessage = `${selected.length} application${selected.length > 1 ? 's were' : ' was'} ${action === 'approve' ? 'approved' : 'rejected'}.`;
     showAdminToast(
       emailFailures
         ? `${actionMessage} Email notification failed for ${emailFailures} applicant${emailFailures > 1 ? 's' : ''}.`
-        : actionMessage,
+        : pendingEmailCount
+          ? `${actionMessage} ${pendingEmailCount} notification email${pendingEmailCount > 1 ? 's are' : ' is'} being sent.`
+          : actionMessage,
       emailFailures ? 'danger' : 'success'
     );
-    await loadAdminDashboard();
+    void loadAdminDashboard();
   } catch (err) {
     if (err.status === 401) return;
     showAdminToast(err.message || 'Bulk action failed.', 'danger');
@@ -833,10 +837,16 @@ async function handleApplicationAction(action, id, button) {
     if (result.success !== true) throw new Error(result.error || 'The application update was not confirmed.');
     const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application revoked and moved to revoked queue.';
     showAdminToast(
-      result.notification?.emailSent === false ? `${actionMessage} Email notification was not delivered.` : actionMessage,
-      result.notification?.emailSent === false ? 'danger' : action === 'approve' ? 'success' : 'danger'
+      result.notification?.emailPending
+        ? `${actionMessage} The notification email is being sent.`
+        : result.notification?.emailSent === false
+          ? `${actionMessage} Email notification was not delivered.`
+          : actionMessage,
+      result.notification?.emailSent === false && !result.notification?.emailPending
+        ? 'danger'
+        : action === 'approve' ? 'success' : 'danger'
     );
-    await loadAdminDashboard();
+    void loadAdminDashboard();
     return true;
   } catch (err) {
     if (err.status === 401) return false;
@@ -900,40 +910,29 @@ async function loadAdminDashboardData() {
     };
     let dashboardWarning = "";
 
-    try {
-      const applicationsData = await requestJson("/applications?limit=200&offset=0");
-      const applications = getApplicationList(applicationsData);
-      if (applications.length) {
-        applicationLists = {
-          pending: applications.filter(app => app.status === "pending"),
-          approved: applications.filter(app => app.status === "approved"),
-          rejected: applications.filter(app => app.status === "rejected")
-        };
-      } else if (Object.values(applicationLists).some(apps => apps.length)) {
-        dashboardWarning = "The applications list endpoint returned no records; showing the dashboard's available application data.";
-      }
-    } catch (err) {
-      dashboardWarning = `Could not refresh the application list: ${err.message}`;
-    }
+    const applicationListMissing = !Array.isArray(dashboardData.pendingApplications) ||
+      !Array.isArray(dashboardData.approvedApplications) ||
+      !Array.isArray(dashboardData.rejectedApplications);
+    const applicationListTruncated = [
+      ['pending', dashboardData.stats?.pendingApplications],
+      ['approved', dashboardData.stats?.approvedApplications]
+    ].some(([status, count]) => Number(count) > applicationLists[status].length);
 
-    if (
-      applicationLists.approved.length < (Number(dashboardData.stats?.approvedApplications) || 0) &&
-      dashboardData.stats?.approvedApplications
-    ) {
-      dashboardWarning = `Showing ${applicationLists.approved.length} approved applications, while the dashboard reports ${dashboardData.stats.approvedApplications}.`;
-    }
-
-    if (!Array.isArray(dashboardData.approvedApplications) && !applicationLists.approved.length) {
+    if (applicationListMissing || applicationListTruncated) {
       try {
-        const approvedData = await requestJson("/applications/approved?limit=200&offset=0");
-        const approvedApps = getApplicationList(approvedData);
-        const approvedTotal = Number(approvedData.total) || approvedApps.length;
-        if (approvedApps.length) applicationLists.approved = approvedApps;
-        if (approvedTotal > approvedApps.length) {
-          dashboardWarning = `Showing the ${approvedApps.length} most recent approved applications out of ${approvedTotal}.`;
+        const applicationsData = await requestJson("/applications?limit=200&offset=0");
+        const applications = getApplicationList(applicationsData);
+        if (applications.length) {
+          applicationLists = {
+            pending: applications.filter(app => app.status === "pending"),
+            approved: applications.filter(app => app.status === "approved"),
+            rejected: applications.filter(app => app.status === "rejected")
+          };
+        } else if (Object.values(applicationLists).some(apps => apps.length)) {
+          dashboardWarning = "The applications list endpoint returned no records; showing the dashboard's available application data.";
         }
       } catch (err) {
-        if (!dashboardWarning) dashboardWarning = `Approved applications could not be loaded: ${err.message}`;
+        dashboardWarning = `Could not refresh the application list: ${err.message}`;
       }
     }
 

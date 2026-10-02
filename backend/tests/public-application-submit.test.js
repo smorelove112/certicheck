@@ -201,7 +201,11 @@ test('admin dashboard reflects approved applications in demo mode', async () => 
 
   const approvedData = await approveResponse.json();
   assert.equal(approveResponse.status, 200, `Unexpected approve status: ${JSON.stringify(approvedData)}`);
-  assert.equal(approvedData.notification.emailSent, true);
+  assert.equal(approvedData.notification.emailSent, false);
+  assert.equal(approvedData.notification.emailPending, true);
+  await waitFor(() => applicationEmails.some(email =>
+    email.type === 'decision' && email.args[0] === 'grace@demo-approved.example' && email.args[3] === true
+  ));
   assert.ok(applicationEmails.some(email =>
     email.type === 'decision' && email.args[0] === 'grace@demo-approved.example' && email.args[3] === true
   ), 'Approved application should send an approval email to the applicant contact email');
@@ -300,11 +304,72 @@ test('rejected applications send a decision email to the applicant contact email
   });
   const rejected = await rejectResponse.json();
   assert.equal(rejectResponse.status, 200, `Unexpected reject status: ${JSON.stringify(rejected)}`);
-  assert.equal(rejected.notification.emailSent, true);
+  assert.equal(rejected.notification.emailSent, false);
+  assert.equal(rejected.notification.emailPending, true);
+  await waitFor(() => applicationEmails.some(email =>
+    email.type === 'decision' &&
+    email.args[0] === 'taylor@example.edu' &&
+    email.args[3] === false &&
+    email.args[4] === 'Application incomplete'
+  ));
   assert.ok(applicationEmails.some(email =>
     email.type === 'decision' &&
     email.args[0] === 'taylor@example.edu' &&
     email.args[3] === false &&
     email.args[4] === 'Application incomplete'
   ), 'Rejected application should send a decision email to the applicant contact email');
+});
+
+test('approval response does not wait for slow decision email delivery', async () => {
+  const createResponse = await fetch(`http://localhost:${process.env.TEST_SERVER_PORT}/api/applications/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      orgName: 'Fast Approval University',
+      orgType: 'university',
+      contactName: 'Jordan Applicant',
+      contactEmail: 'jordan@fast-approval.example',
+      contactRole: 'Registrar'
+    })
+  });
+  const created = await createResponse.json();
+  assert.equal(createResponse.status, 201);
+
+  const originalSendApplicationDecision = EmailService.sendApplicationDecision;
+  let releaseDelivery;
+  let markStarted;
+  const deliveryStarted = new Promise(resolve => { markStarted = resolve; });
+  const delivery = new Promise(resolve => { releaseDelivery = resolve; });
+  EmailService.sendApplicationDecision = async () => {
+    markStarted();
+    await delivery;
+    return { messageId: 'delayed-decision-email' };
+  };
+
+  try {
+    const startedAt = Date.now();
+    const response = await fetch(`http://localhost:${process.env.TEST_SERVER_PORT}/api/applications/${created.application.id}/approve`, {
+      method: 'PUT',
+      headers: {
+        Authorization: 'Bearer demo-token',
+        'x-demo-user-type': 'admin',
+        'Content-Type': 'application/json'
+      }
+    });
+    const result = await response.json();
+    assert.equal(response.status, 200, `Unexpected approval status: ${JSON.stringify(result)}`);
+    assert.equal(result.success, true);
+    assert.equal(result.notification.emailPending, true);
+    assert.ok(Date.now() - startedAt < 500, 'Approval response should not wait for SMTP delivery');
+    await deliveryStarted;
+
+    const approvedList = await fetch(`http://localhost:${process.env.TEST_SERVER_PORT}/api/applications/approved`, {
+      headers: { Authorization: 'Bearer demo-token', 'x-demo-user-type': 'admin' }
+    });
+    const approved = await approvedList.json();
+    assert.ok(approved.applications.some(app => String(app.id) === String(created.application.id)), 'Application status should be saved before response');
+  } finally {
+    releaseDelivery();
+    EmailService.sendApplicationDecision = originalSendApplicationDecision;
+  }
 });

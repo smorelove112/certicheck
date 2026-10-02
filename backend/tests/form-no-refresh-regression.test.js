@@ -87,6 +87,10 @@ test('admin dashboard avoids automatic refreshes and refreshes after admin actio
   assert.match(adminJs, /if \(enabled\)[\s\S]*?loadAdminDashboard\(\);/);
 });
 
+test('local admin preview uses the local backend instead of the deployed API', () => {
+  assert.match(adminJs, /:\s*`\$\{window\.location\.protocol\}\/\/\$\{window\.location\.hostname\}:5000`/);
+});
+
 test('expired admin tokens clear the stale session and return to sign-in', () => {
   assert.match(adminJs, /error\.status = response\.status/);
   assert.match(adminJs, /if \(response\.status === 401 && adminState\.token && path !== "\/auth\/admin\/login"\) \{\s*setAdminState\(false\);\s*showAdminError\('Your admin session has expired\. Please sign in again\.'\);/);
@@ -96,4 +100,10 @@ test('expired admin tokens clear the stale session and return to sign-in', () =>
 test('admin actions show a warning when notification delivery fails', () => {
   assert.match(adminJs, /Email notification was not delivered/);
   assert.match(adminJs, /Email notification failed for/);
+});
+
+test('admin action refresh avoids redundant application fetches and does not block action completion', () => {
+  assert.match(adminJs, /if \(applicationListMissing \|\| applicationListTruncated\) \{/);
+  assert.match(adminJs, /void loadAdminDashboard\(\);/);
+  assert.match(adminJs, /notification\??\.emailPending/);
 });
