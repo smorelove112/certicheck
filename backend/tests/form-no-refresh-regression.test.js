@@ -80,9 +80,17 @@ test('login guidance explains the default password and required password change'
 
 test('admin dashboard avoids automatic refreshes and refreshes after admin actions', () => {
   assert.doesNotMatch(adminJs, /setInterval|startAdminDashboardPolling|stopAdminDashboardPolling/);
-  assert.match(adminJs, /async function handleApplicationAction[\s\S]*?await loadAdminDashboard\(\);/);
-  assert.match(adminJs, /async function handleBulkAction[\s\S]*?await loadAdminDashboard\(\);/);
+  assert.match(adminJs, /await handleApplicationAction\(action, id, button\)/);
+  assert.match(adminJs, /async function handleApplicationAction[\s\S]*?showAdminToast\(`Could not \$\{action\} the application: \$\{err\.message\}`,[\s\S]*?await loadAdminDashboard\(\);/);
+  assert.match(adminJs, /async function handleBulkAction[\s\S]*?showAdminToast\(err\.message \|\| 'Bulk action failed\.'/);
+  assert.match(adminJs, /async function handleBulkAction[\s\S]*?button\.textContent = `\$\{action === 'approve' \? 'Approving' : 'Rejecting'\} \$\{selected\.length\}\.\.\.`/);
   assert.match(adminJs, /if \(enabled\)[\s\S]*?loadAdminDashboard\(\);/);
+});
+
+test('expired admin tokens clear the stale session and return to sign-in', () => {
+  assert.match(adminJs, /error\.status = response\.status/);
+  assert.match(adminJs, /if \(response\.status === 401 && adminState\.token && path !== "\/auth\/admin\/login"\) \{\s*setAdminState\(false\);\s*showAdminError\('Your admin session has expired\. Please sign in again\.'\);/);
+  assert.match(adminJs, /if \(err\.status === 401\) return false;\s*showAdminToast\(`Could not \$\{action\} the application/);
 });
 
 test('admin actions show a warning when notification delivery fails', () => {

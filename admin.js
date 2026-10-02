@@ -161,7 +161,13 @@ async function requestJson(path, options = {}) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || "Request failed");
+    const error = new Error(data.error || "Request failed");
+    error.status = response.status;
+    if (response.status === 401 && adminState.token && path !== "/auth/admin/login") {
+      setAdminState(false);
+      showAdminError('Your admin session has expired. Please sign in again.');
+    }
+    throw error;
   }
   return data;
 }
@@ -546,10 +552,10 @@ function openAdminDetail(item) {
   drawer.style.display = 'block';
 
   content.querySelectorAll('[data-detail-action]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const action = btn.dataset.detailAction;
-      handleApplicationAction(action, btn.dataset.id);
-      drawer.style.display = 'none';
+      const succeeded = await handleApplicationAction(action, btn.dataset.id, btn);
+      if (succeeded) drawer.style.display = 'none';
     });
   });
 }
@@ -585,21 +591,26 @@ function bindAdminReviewControls() {
     });
   });
 
-  bulkApprove?.addEventListener('click', () => handleBulkAction('approve'));
-  bulkReject?.addEventListener('click', () => handleBulkAction('reject'));
+  bulkApprove?.addEventListener('click', () => handleBulkAction('approve', bulkApprove));
+  bulkReject?.addEventListener('click', () => handleBulkAction('reject', bulkReject));
   drawerClose?.addEventListener('click', () => {
     const drawer = document.getElementById('adminDetailDrawer');
     if (drawer) drawer.style.display = 'none';
   });
 }
 
-async function handleBulkAction(action) {
+async function handleBulkAction(action, button) {
   const selected = [...document.querySelectorAll('.admin-row-select:checked')].map(input => input.dataset.id).filter(Boolean);
   if (!selected.length) {
     showAdminToast('Select at least one application to continue.', 'danger');
     return;
   }
 
+  const originalText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = `${action === 'approve' ? 'Approving' : 'Rejecting'} ${selected.length}...`;
+  }
   try {
     let emailFailures = 0;
     for (const id of selected) {
@@ -615,7 +626,13 @@ async function handleBulkAction(action) {
     );
     await loadAdminDashboard();
   } catch (err) {
+    if (err.status === 401) return;
     showAdminToast(err.message || 'Bulk action failed.', 'danger');
+  } finally {
+    if (button?.isConnected) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 }
 
@@ -763,51 +780,96 @@ function renderAdminDashboard() {
   });
 
   list.querySelectorAll('button[data-action]').forEach(button => {
-    button.addEventListener('click', (event) => {
+    button.addEventListener('click', async (event) => {
       event.stopPropagation();
       const action = button.dataset.action;
       const id = button.dataset.id;
       if (!id) return;
-      if (action === 'approve' || action === 'reject') handleApplicationAction(action, id);
+      if (action === 'approve' || action === 'reject') {
+        await handleApplicationAction(action, id, button);
+      }
     });
   });
 }
 
-async function handleCreateAccountForApplication(id) {
+async function handleCreateAccountForApplication(id, button) {
+  const originalText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Linking account...';
+  }
   try {
     const data = await requestJson(`/applications/${id}/create-account`, { method: 'POST' });
     if (data.success && data.credentials) {
       alert(`Issuer account created:\nEmail: ${data.credentials.email}\nPassword: ${data.credentials.password}`);
     } else if (data.success && data.user) {
       alert(`Existing account linked for ${data.user.email}`);
+    } else {
+      throw new Error('The account request did not return a result.');
     }
     await loadAdminDashboard();
+    return true;
   } catch (err) {
-    showAdminError(err.message);
+    if (err.status === 401) return false;
+    showAdminToast(`Could not link the issuer account: ${err.message}`, 'danger');
+    return false;
+  } finally {
+    if (button?.isConnected) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 }
 
-async function handleApplicationAction(action, id) {
+async function handleApplicationAction(action, id, button) {
+  const originalText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = action === 'approve' ? 'Approving...' : 'Rejecting...';
+  }
   try {
     const endpoint = action === "approve" ? `/applications/${id}/approve` : `/applications/${id}/reject`;
     const result = await requestJson(endpoint, { method: "PUT" });
+    if (result.success !== true) throw new Error(result.error || 'The application update was not confirmed.');
     const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application revoked and moved to revoked queue.';
     showAdminToast(
       result.notification?.emailSent === false ? `${actionMessage} Email notification was not delivered.` : actionMessage,
       result.notification?.emailSent === false ? 'danger' : action === 'approve' ? 'success' : 'danger'
     );
     await loadAdminDashboard();
+    return true;
   } catch (err) {
-    showAdminError(err.message);
+    if (err.status === 401) return false;
+    showAdminToast(`Could not ${action} the application: ${err.message}`, 'danger');
+    return false;
+  } finally {
+    if (button?.isConnected) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 }
 
-async function handleRevokeAction(id) {
+async function handleRevokeAction(id, button) {
+  const originalText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Revoking...';
+  }
   try {
     await requestJson(`/verify/${id}/revoke`, { method: "PUT" });
     await loadAdminDashboard();
+    showAdminToast('Certificate revoked.', 'success');
+    return true;
   } catch (err) {
-    showAdminError(err.message);
+    if (err.status === 401) return false;
+    showAdminToast(`Could not revoke the certificate: ${err.message}`, 'danger');
+    return false;
+  } finally {
+    if (button?.isConnected) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 }
 
@@ -891,9 +953,12 @@ async function loadAdminDashboardData() {
 
     renderAdminDashboard();
   } catch (err) {
+    if (err.status === 401) {
+      return;
+    }
     adminState.dashboardWarning = `Dashboard data could not be loaded: ${err.message}`;
     renderAdminDashboard();
-    showAdminError(err.message);
+    showAdminToast(`Dashboard data could not be loaded: ${err.message}`, 'danger');
   }
 }
 
