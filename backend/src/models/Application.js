@@ -48,7 +48,7 @@ class Application {
       `INSERT INTO pending_applications 
       (issuer_id, organization_name, organization_type, organization_website, contact_name, contact_email, generated_email, contact_role, certificate_volume, use_case, wallet_address)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING id, organization_name, generated_email, status, submitted_at`,
+      RETURNING id, organization_name, contact_email, generated_email, status, submitted_at`,
           [issuerProfileId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet]
     );
     return result.rows[0];
