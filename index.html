@@ -387,11 +387,10 @@
   <!-- ══════════════════════════════════════
        PAGE: LOGIN
   ══════════════════════════════════════ -->
-  <div id="page-login" class="page">
+  <div id="page-login" class="page login-page">
     <div class="page-wrap" style="max-width:500px">
       <div class="page-header">
         <h1 class="page-title">Login</h1>
-        <p class="page-desc">Approved issuers: enter your email and activation code to create a password. Existing users can sign in with their password.</p>
       </div>
 
       <div class="form-card">
@@ -411,10 +410,9 @@
           <div id="loginError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
           <button class="btn-primary" id="loginBtn" style="width:100%">Login</button>
         </div>
-
         <section id="loginIssuerActivation">
-          <h2 class="page-title" style="font-size:20px;margin-bottom:8px;">Approved issuer?</h2>
-          <p class="page-desc" style="margin-bottom:16px;">Verify your email and activation code to create your password.</p>
+        <section id="loginIssuerActivation">
+          <h2 class="login-section-title">Issuer account setup</h2>
           <form id="issuerActivationForm">
             <div class="field">
               <label class="field-label" for="activationEmail">Email</label>

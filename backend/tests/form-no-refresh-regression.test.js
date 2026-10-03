@@ -68,6 +68,7 @@ test('static localhost previews use the deployed API instead of an unavailable l
 test('login page includes the approved issuer activation flow', () => {
   assert.match(indexHtml, /id="page-login"/);
   assert.match(indexHtml, /id="loginIssuerActivation"/);
+  assert.match(indexHtml, /class="login-section-title">Issuer account setup/);
   assert.match(indexHtml, /id="loginSignInFields" hidden/);
   assert.match(indexHtml, /id="issuerActivationForm"/);
   assert.match(indexHtml, /id="activationCode"[^>]*pattern="\[0-9\]\{6\}"/);
@@ -80,6 +81,8 @@ test('login page includes the approved issuer activation flow', () => {
   assert.match(scriptJs, /showIssuerActivationOnLogin\(email, errMsg\)/);
   assert.match(scriptJs, /\/issuers\/apply/);
   assert.match(indexHtml, /id="activationPasswordFields" hidden/);
+  const loginPage = indexHtml.match(/<div id="page-login"[\s\S]*?<\/div>\s*<!-- ═══/)[0];
+  assert.doesNotMatch(loginPage, /Approved issuers: enter your email and activation code|Verify your email and activation code to create your password/);
 });
 
 test('user password-reset screens are wired to the email OTP endpoints', () => {
