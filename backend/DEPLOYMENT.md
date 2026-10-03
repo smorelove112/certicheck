@@ -6,7 +6,7 @@ This document outlines recommended steps to deploy the Certicheck backend to pro
 
 The frontend defaults to the Render API. Its `/health` endpoint returned `status: ok` during this review, but a health response does not verify application submission or on-chain issuance end to end. Production readiness still requires verified database/secrets/CORS configuration and a public smoke test of those flows.
 
-Set `CORS_ORIGINS` on Render to a comma-separated list of exact frontend origins, including the production Vercel domain. The main site sends login and other API requests to the Render API URL configured in `script.js` by default; `window.CERTICHECK_API_BASE_URL` can override it when deploying the static frontend.
+Set `FRONTEND_URL` on Render to the exact production frontend origin (scheme and host only, no path), or set `CORS_ORIGINS` to a comma-separated list of exact frontend origins. Do not use a broad wildcard. The main site sends login and other API requests to the Render API URL configured in `script.js` by default; `window.CERTICHECK_API_BASE_URL` can override it when deploying the static frontend. The Express app trusts one proxy hop for Render's forwarded client IP headers.
 
 1. Environment variables
    - Create a `.env` file with required values:

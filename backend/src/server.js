@@ -19,6 +19,8 @@ const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
 
 // ── MIDDLEWARE ─────────────────────────────────────────────────────────────
+app.set('trust proxy', 1);
+
 const allowedOrigins = new Set([
   'https://certicheck-psi.vercel.app',
   'http://localhost:3000',
@@ -34,7 +36,11 @@ const allowedOrigins = new Set([
   ...String(process.env.CORS_ORIGINS || '')
     .split(',')
     .map(origin => origin.trim())
-    .filter(Boolean)
+    .filter(Boolean),
+  ...(String(process.env.FRONTEND_URL || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean))
 ]);
 app.use(cors({
   origin: function(origin, cb) {
@@ -172,6 +178,10 @@ app.use((req, res) => {
 
 // ── ERROR HANDLER ──────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
+  if (err.message === 'Not allowed by CORS') {
+    console.warn(`CORS rejected origin: ${req.get('origin') || '(missing)'}`);
+    return res.status(403).json({ error: 'This website origin is not allowed to access the API' });
+  }
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
