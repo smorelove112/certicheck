@@ -25,40 +25,7 @@ class EmailService {
     const port = Number.parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT, 10) || 587;
     const secureSetting = process.env.SMTP_SECURE ?? process.env.EMAIL_SECURE;
     const secure = secureSetting === undefined ? port === 465 : secureSetting === 'true';
-    this.resendApiKey = process.env.RESEND_API_KEY?.trim() || '';
-    this.resendFrom = process.env.RESEND_FROM?.trim() || '';
-    this.gmailOAuth = {
-      clientId: process.env.GMAIL_CLIENT_ID?.trim() || '',
-      clientSecret: process.env.GMAIL_CLIENT_SECRET?.trim() || '',
-      refreshToken: process.env.GMAIL_REFRESH_TOKEN?.trim() || '',
-      from: process.env.GMAIL_FROM?.trim() || ''
-    };
-    this.gmailAccessToken = null;
-    this.gmailAccessTokenExpiresAt = 0;
-
-    if (this.resendApiKey && this.resendFrom) {
-      this.transporter = null;
-      this.mode = 'resend';
-      this.transportVerification = { status: 'pending' };
-      console.log('📧 Email Service: Resend HTTPS API configured');
-    } else if (this.resendApiKey) {
-      this.transporter = null;
-      this.mode = 'disabled';
-      this.transportVerification = { status: 'failed', errorCode: 'RESEND_FROM_REQUIRED' };
-      console.error('📧 Email Service: RESEND_FROM must be configured with a verified sender address');
-    } else if (Object.values(this.gmailOAuth).some(Boolean)) {
-      if (Object.values(this.gmailOAuth).every(Boolean)) {
-        this.transporter = null;
-        this.mode = 'gmail-api';
-        this.transportVerification = { status: 'pending' };
-        console.log('📧 Email Service: Gmail API configured');
-      } else {
-        this.transporter = null;
-        this.mode = 'disabled';
-        this.transportVerification = { status: 'failed', errorCode: 'GMAIL_OAUTH_CONFIG_INCOMPLETE' };
-        console.error('📧 Email Service: Gmail API requires GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, and GMAIL_FROM');
-      }
-    } else if (host && user && pass) {
+    if (host && user && pass) {
       this.transporter = nodemailer.createTransport({
         host,
         port,
@@ -88,54 +55,19 @@ class EmailService {
 
   getFromAddress() {
     return process.env.SMTP_FROM || process.env.EMAIL_FROM ||
-      process.env.SMTP_USER || process.env.EMAIL_USER ||
-      this.gmailOAuth?.from || 'noreply@certicheck.com';
+      process.env.SMTP_USER || process.env.EMAIL_USER || 'noreply@certicheck.com';
   }
 
   getStatus() {
     return {
       mode: this.mode,
-      configured: this.mode === 'smtp' || this.mode === 'resend' || this.mode === 'gmail-api',
+      configured: this.mode === 'smtp',
       verification: this.transportVerification.status,
       errorCode: this.transportVerification.errorCode || null
     };
   }
 
   async verifyTransport() {
-    if (this.mode === 'resend') {
-      try {
-        const response = await fetch('https://api.resend.com/domains', {
-          headers: { Authorization: `Bearer ${this.resendApiKey}` },
-          signal: AbortSignal.timeout(10000)
-        });
-        if (!response.ok) {
-          const errorBody = await response.json().catch(() => ({}));
-          const errorCode = `RESEND_HTTP_${response.status}`;
-          this.transportVerification = { status: 'failed', errorCode };
-          console.error(`📧 Email Service: Resend authentication failed (${errorCode}): ${errorBody.message || 'API key check failed'}`);
-          return this.getStatus();
-        }
-        this.transportVerification = { status: 'authenticated' };
-        console.log('📧 Email Service: Resend API authentication verified');
-      } catch (error) {
-        const errorCode = error.name === 'TimeoutError' ? 'ETIMEDOUT' : error.code || error.name || 'RESEND_VERIFY_FAILED';
-        this.transportVerification = { status: 'failed', errorCode };
-        console.error(`📧 Email Service: Resend API verification failed (${errorCode}): ${error.message}`);
-      }
-      return this.getStatus();
-    }
-    if (this.mode === 'gmail-api') {
-      try {
-        await this.getGmailAccessToken();
-        this.transportVerification = { status: 'authenticated' };
-        console.log('📧 Email Service: Gmail API OAuth credentials verified');
-      } catch (error) {
-        const errorCode = error.code || error.name || 'GMAIL_OAUTH_VERIFY_FAILED';
-        this.transportVerification = { status: 'failed', errorCode };
-        console.error(`📧 Email Service: Gmail API authentication failed (${errorCode}): ${error.message}`);
-      }
-      return this.getStatus();
-    }
     if (this.mode !== 'smtp') return this.getStatus();
 
     try {
@@ -150,84 +82,6 @@ class EmailService {
     return this.getStatus();
   }
 
-  async getGmailAccessToken() {
-    if (this.gmailAccessToken && this.gmailAccessTokenExpiresAt > Date.now() + 60000) {
-      return this.gmailAccessToken;
-    }
-
-    const body = new URLSearchParams({
-      client_id: this.gmailOAuth.clientId,
-      client_secret: this.gmailOAuth.clientSecret,
-      refresh_token: this.gmailOAuth.refreshToken,
-      grant_type: 'refresh_token'
-    });
-    const response = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-      signal: AbortSignal.timeout(10000)
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok || !result.access_token) {
-      const error = new Error(result.error_description || result.error || `OAuth token endpoint returned HTTP ${response.status}`);
-      error.code = response.status === 400 || response.status === 401 ? 'GMAIL_OAUTH_INVALID_CREDENTIALS' : `GMAIL_OAUTH_HTTP_${response.status}`;
-      throw error;
-    }
-
-    this.gmailAccessToken = result.access_token;
-    this.gmailAccessTokenExpiresAt = Date.now() + Number(result.expires_in || 3600) * 1000;
-    return this.gmailAccessToken;
-  }
-
-  buildGmailRawMessage({ to, subject, html, text, attachments }) {
-    const safeHeader = value => String(value || '').replace(/[\r\n]+/g, ' ').trim();
-    const encodeHeader = value => `=?UTF-8?B?${Buffer.from(safeHeader(value)).toString('base64')}?=`;
-    const wrapBase64 = value => value.match(/.{1,76}/g)?.join('\r\n') || '';
-    const boundaryRelated = `certicheck-related-${require('crypto').randomBytes(12).toString('hex')}`;
-    const boundaryAlternative = `certicheck-alternative-${require('crypto').randomBytes(12).toString('hex')}`;
-    const recipients = (Array.isArray(to) ? to : [to]).map(safeHeader).filter(Boolean);
-    const lines = [
-      `From: ${safeHeader(this.gmailOAuth.from)}`,
-      `To: ${recipients.join(', ')}`,
-      `Subject: ${encodeHeader(subject)}`,
-      'MIME-Version: 1.0',
-      `Content-Type: multipart/related; boundary="${boundaryRelated}"`,
-      '',
-      `--${boundaryRelated}`,
-      `Content-Type: multipart/alternative; boundary="${boundaryAlternative}"`,
-      '',
-      `--${boundaryAlternative}`,
-      'Content-Type: text/plain; charset=UTF-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      wrapBase64(Buffer.from(text || '').toString('base64')),
-      `--${boundaryAlternative}`,
-      'Content-Type: text/html; charset=UTF-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      wrapBase64(Buffer.from(html || '').toString('base64')),
-      `--${boundaryAlternative}--`
-    ];
-
-    for (const attachment of attachments) {
-      const content = Buffer.isBuffer(attachment.content)
-        ? attachment.content
-        : Buffer.from(attachment.content || '', 'base64');
-      lines.push(
-        `--${boundaryRelated}`,
-        `Content-Type: ${safeHeader(attachment.contentType || 'application/octet-stream')}; name="${safeHeader(attachment.filename || 'attachment')}"`,
-        'Content-Transfer-Encoding: base64',
-        `Content-Disposition: inline; filename="${safeHeader(attachment.filename || 'attachment')}"`,
-        ...(attachment.cid ? [`Content-ID: <${safeHeader(attachment.cid)}>`] : []),
-        '',
-        wrapBase64(content.toString('base64'))
-      );
-    }
-
-    lines.push(`--${boundaryRelated}--`, '');
-    return Buffer.from(lines.join('\r\n')).toString('base64url');
-  }
-
   async sendEmail({ to, subject, html, text, attachments = [] }) {
     if (this.mode === 'console') {
       console.log('\n=========================================');
@@ -237,77 +91,8 @@ class EmailService {
       console.log('=========================================\n');
       return true;
     }
-    if (this.mode === 'resend') {
-      try {
-        const response = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${this.resendApiKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            from: this.resendFrom,
-            to: Array.isArray(to) ? to : [to],
-            subject,
-            html,
-            text,
-            ...(attachments.length ? {
-              attachments: attachments.map(attachment => ({
-                filename: attachment.filename,
-                ...(attachment.contentType ? { content_type: attachment.contentType } : {}),
-                content: Buffer.isBuffer(attachment.content)
-                  ? attachment.content.toString('base64')
-                  : attachment.content,
-                ...(attachment.cid ? { content_id: attachment.cid } : {})
-              }))
-            } : {})
-          }),
-          signal: AbortSignal.timeout(15000)
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.id) {
-          console.error(`📧 Resend email failed (HTTP ${response.status}): ${result.message || result.name || 'No email ID returned'}`);
-          return false;
-        }
-        console.log(`✉️  Resend accepted email for delivery: ${result.id}`);
-        return true;
-      } catch (error) {
-        const errorCode = error.name === 'TimeoutError' ? 'ETIMEDOUT' : error.code || error.name || 'RESEND_SEND_FAILED';
-        console.error(`📧 Resend email failed (${errorCode}): ${error.message}`);
-        return false;
-      }
-    }
-    if (this.mode === 'gmail-api') {
-      try {
-        const accessToken = await this.getGmailAccessToken();
-        const raw = this.buildGmailRawMessage({ to, subject, html, text, attachments });
-        const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ raw }),
-          signal: AbortSignal.timeout(15000)
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.id) {
-          const errorCode = response.status === 401 || response.status === 403
-            ? 'GMAIL_API_PERMISSION_DENIED'
-            : `GMAIL_API_HTTP_${response.status}`;
-          console.error(`📧 Gmail API send failed (${errorCode}): ${result.error?.message || 'No message ID returned'}`);
-          return false;
-        }
-        console.log(`✉️  Gmail API accepted email for delivery: ${result.id}`);
-        return true;
-      } catch (error) {
-        const errorCode = error.name === 'TimeoutError' ? 'ETIMEDOUT' : error.code || error.name || 'GMAIL_API_SEND_FAILED';
-        console.error(`📧 Gmail API send failed (${errorCode}): ${error.message}`);
-        return false;
-      }
-    }
     if (this.mode !== 'smtp') {
-      console.error(`📧 Email Send Error: email delivery is not configured (${this.transportVerification.errorCode || this.mode})`);
+      console.error('📧 Email Send Error: SMTP is not configured');
       return false;
     }
 
