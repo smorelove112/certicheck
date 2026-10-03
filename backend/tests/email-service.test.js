@@ -20,9 +20,25 @@ function decodeMimeBodies(request) {
 test('Gmail API is configured with OAuth refresh-token credentials', () => {
   assert.equal(emailService.mode, 'gmail-api');
   assert.equal(emailService.getFromAddress(), process.env.GMAIL_FROM);
+  assert.deepEqual(emailService.getStatus().missingSettings, []);
   assert.deepEqual(emailService.oauth2Client.credentials, {
     refresh_token: process.env.GMAIL_REFRESH_TOKEN
   });
+});
+
+test('Gmail API reports missing setting names without exposing credential values', () => {
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  delete process.env.GMAIL_REFRESH_TOKEN;
+  try {
+    emailService.initTransporter();
+    const status = emailService.getStatus();
+    assert.equal(status.configured, false);
+    assert.deepEqual(status.missingSettings, ['GMAIL_REFRESH_TOKEN']);
+    assert.equal(JSON.stringify(status).includes(process.env.GMAIL_CLIENT_SECRET), false);
+  } finally {
+    process.env.GMAIL_REFRESH_TOKEN = refreshToken;
+    emailService.initTransporter();
+  }
 });
 
 test('Gmail API verifies OAuth credentials and reports only a safe status', async () => {
@@ -32,7 +48,8 @@ test('Gmail API verifies OAuth credentials and reports only a safe status', asyn
     mode: 'gmail-api',
     configured: true,
     verification: 'authenticated',
-    errorCode: null
+    errorCode: null,
+    missingSettings: []
   });
 
   emailService.oauth2Client.getAccessToken = async () => {

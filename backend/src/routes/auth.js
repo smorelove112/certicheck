@@ -811,11 +811,18 @@ router.post('/forgot-password', async (req, res) => {
 
     return res.json({ success: true, message: 'If an account exists, we sent a code.' });
   } catch (err) {
+    const errorCode = typeof err.code === 'string' && /^[A-Z0-9_]+$/.test(err.code)
+      ? err.code
+      : null;
     console.error(`Forgot password request failed during ${failureStage}:`, {
-      code: err.code || err.name || 'UNKNOWN_ERROR',
+      code: errorCode || err.name || 'UNKNOWN_ERROR',
       message: err.message || String(err)
     });
-    res.status(500).json({ error: 'Failed to process forgot password request', stage: failureStage });
+    res.status(500).json({
+      error: 'Failed to process forgot password request',
+      stage: failureStage,
+      ...(errorCode ? { errorCode } : {})
+    });
   }
 });
 

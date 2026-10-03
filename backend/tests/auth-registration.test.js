@@ -194,6 +194,7 @@ test('password reset identifies database-stage failures without exposing databas
 
   assert.equal(response.status, 500, JSON.stringify(data));
   assert.equal(data.stage, 'otp-creation');
+  assert.equal(data.errorCode, '42703');
   assert.equal(data.error, 'Failed to process forgot password request');
   assert.equal(JSON.stringify(data).includes('database schema detail'), false);
 });

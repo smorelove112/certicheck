@@ -20,23 +20,27 @@ class EmailService {
   }
 
   initTransporter() {
-    const gmailConfig = {
-      clientId: process.env.GMAIL_CLIENT_ID,
-      clientSecret: process.env.GMAIL_CLIENT_SECRET,
-      refreshToken: process.env.GMAIL_REFRESH_TOKEN,
-      from: process.env.GMAIL_FROM
+    const gmailEnvironment = {
+      GMAIL_CLIENT_ID: process.env.GMAIL_CLIENT_ID,
+      GMAIL_CLIENT_SECRET: process.env.GMAIL_CLIENT_SECRET,
+      GMAIL_REFRESH_TOKEN: process.env.GMAIL_REFRESH_TOKEN,
+      GMAIL_FROM: process.env.GMAIL_FROM
     };
-    const hasGmailConfig = Object.values(gmailConfig).some(Boolean);
+    const missingGmailSettings = Object.entries(gmailEnvironment)
+      .filter(([, value]) => !value)
+      .map(([name]) => name);
+    const hasGmailConfig = missingGmailSettings.length < Object.keys(gmailEnvironment).length;
+    this.missingGmailSettings = missingGmailSettings;
     this.transporter = null;
     this.oauth2Client = null;
     this.gmailApi = null;
-    if (Object.values(gmailConfig).every(Boolean)) {
+    if (missingGmailSettings.length === 0) {
       this.oauth2Client = new google.auth.OAuth2(
-        gmailConfig.clientId,
-        gmailConfig.clientSecret,
+        gmailEnvironment.GMAIL_CLIENT_ID,
+        gmailEnvironment.GMAIL_CLIENT_SECRET,
         process.env.GMAIL_REDIRECT_URI || 'https://developers.google.com/oauthplayground'
       );
-      this.oauth2Client.setCredentials({ refresh_token: gmailConfig.refreshToken });
+      this.oauth2Client.setCredentials({ refresh_token: gmailEnvironment.GMAIL_REFRESH_TOKEN });
       this.gmailApi = google.gmail({ version: 'v1', auth: this.oauth2Client });
       this.mode = 'gmail-api';
       this.transportVerification = { status: 'pending' };
@@ -67,7 +71,8 @@ class EmailService {
       mode: this.mode,
       configured: this.mode === 'gmail-api',
       verification: this.transportVerification.status,
-      errorCode: this.transportVerification.errorCode || null
+      errorCode: this.transportVerification.errorCode || null,
+      missingSettings: this.missingGmailSettings
     };
   }
 
