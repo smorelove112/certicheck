@@ -169,9 +169,11 @@ CREATE TABLE IF NOT EXISTS otp_verification (
   otp_code VARCHAR(10) NOT NULL,
   purpose VARCHAR(50) DEFAULT 'reset_password',
   expires_at TIMESTAMP NOT NULL,
-  is_used BOOLEAN DEFAULT FALSE,
+  is_used BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE otp_verification
+  ADD COLUMN IF NOT EXISTS is_used BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_otp_email ON otp_verification(email, is_used, expires_at);
 
 -- ── AUDIT LOG TABLE ───────────────────────────────────────────────────────────
