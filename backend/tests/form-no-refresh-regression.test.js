@@ -71,10 +71,13 @@ test('issuer activation page is wired to the secure activation endpoint', () => 
   assert.match(indexHtml, /id="activationCode"[^>]*pattern="\[0-9\]\{6\}"/);
   assert.match(scriptJs, /function initIssuerActivationForm\(\)/);
   assert.match(scriptJs, /\/auth\/activate-issuer/);
+  assert.match(scriptJs, /\/auth\/verify-issuer-activation/);
   assert.match(scriptJs, /page === "activate-account"/);
   assert.match(scriptJs, /ISSUER_ACTIVATION_REQUIRED/);
+  assert.match(scriptJs, /navigate\('activate-account'\)/);
   assert.match(scriptJs, /\/issuers\/apply/);
-  assert.match(indexHtml, /activation code to create your password/i);
+  assert.match(indexHtml, /6-digit code from your approval email/i);
+  assert.match(indexHtml, /id="activationPasswordFields" hidden/);
 });
 
 test('user password-reset screens are wired to the email OTP endpoints', () => {
@@ -103,7 +106,8 @@ test('certificate verification shows a credential-rich card and only celebrates 
 });
 
 test('issuer activation guidance explains the emailed code and password setup', () => {
-  assert.match(indexHtml, /activation code to create your password/i);
+  assert.match(indexHtml, /Verify code/);
+  assert.match(indexHtml, /Create password/);
 });
 
 test('admin dashboard avoids automatic refreshes and refreshes after admin actions', () => {

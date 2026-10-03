@@ -13,6 +13,8 @@ const originalFindByEmail = User.findByEmail;
 const originalCreate = User.create;
 const originalUpdatePassword = User.updatePassword;
 const originalActivateIssuer = User.activateIssuer;
+const originalVerifyPassword = User.verifyPassword;
+const originalVerifyIssuerActivation = User.verifyIssuerActivation;
 const originalOtpCreate = OTP.create;
 const originalOtpVerify = OTP.verify;
 const originalOtpConsume = OTP.consume;
@@ -52,6 +54,8 @@ test.after(async () => {
   User.create = originalCreate;
   User.updatePassword = originalUpdatePassword;
   User.activateIssuer = originalActivateIssuer;
+  User.verifyPassword = originalVerifyPassword;
+  User.verifyIssuerActivation = originalVerifyIssuerActivation;
   OTP.create = originalOtpCreate;
   OTP.verify = originalOtpVerify;
   OTP.consume = originalOtpConsume;
@@ -104,6 +108,62 @@ test('signup email verification endpoints are not registered', async () => {
     const response = await post(route, {});
     assert.equal(response.status, 404, `${route} should not exist`);
   }
+});
+
+test('approved issuer login directs the user to activation without requiring the temporary password', async () => {
+  const email = 'approved.issuer@example.com';
+  User.findByEmail = async requestedEmail => requestedEmail === email
+    ? {
+        id: 42,
+        email,
+        user_type: 'issuer',
+        is_active: false,
+        activation_code_hash: 'activation-hash',
+        activation_expires_at: new Date(Date.now() + 900000)
+      }
+    : null;
+  User.verifyPassword = async () => null;
+
+  const response = await post('/login', { email, password: 'not-the-temporary-password' });
+  const data = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.equal(data.code, 'ISSUER_ACTIVATION_REQUIRED');
+});
+
+test('activation code must match the email and approved account before password creation', async () => {
+  let verification;
+  User.verifyIssuerActivation = async (email, activationCodeHash) => {
+    verification = { email, activationCodeHash };
+    return true;
+  };
+
+  const response = await post('/verify-issuer-activation', {
+    email: ' Ada@Example.com ',
+    activationCode: '123456'
+  });
+  const data = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(data));
+  assert.equal(verification.email, 'ada@example.com');
+  assert.match(verification.activationCodeHash, /^[a-f0-9]{64}$/);
+
+  User.verifyIssuerActivation = async () => false;
+  const invalidResponse = await post('/verify-issuer-activation', {
+    email: 'ada@example.com',
+    activationCode: '654321'
+  });
+  assert.equal(invalidResponse.status, 400);
+});
+
+test('forgot password explicitly reports when an email is not registered', async () => {
+  User.findByEmail = async () => null;
+
+  const response = await post('/forgot-password', { email: 'unknown@example.com' });
+  const data = await response.json();
+
+  assert.equal(response.status, 404);
+  assert.equal(data.error, 'No account is registered with this email address.');
 });
 
 test('password reset sends an OTP and updates the password when the code is valid', async () => {

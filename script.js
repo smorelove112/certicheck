@@ -2008,6 +2008,7 @@ function initIssuerActivationForm() {
           errorEl.style.display = 'block';
         }
       }, 'Verifying code...');
+      if (activationCodeVerified) button.textContent = 'Create password';
       return;
     }
 
