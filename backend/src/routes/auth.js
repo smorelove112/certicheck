@@ -13,6 +13,10 @@ const { logAudit, verifyToken, verifyAdmin, verifyAdminToken } = require('../mid
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
+const duplicateEmailResponse = {
+  success: false,
+  message: 'This email has already been used. Please log in or try another email.'
+};
 const issuerActivationRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -216,7 +220,7 @@ router.post('/register', async (req, res) => {
 
     const existingUser = await User.findByEmail(email);
     if (existingUser) {
-      return res.status(409).json({ error: 'Email already registered' });
+      return res.status(409).json(duplicateEmailResponse);
     }
 
     const newUser = await User.create(email, 'password', firstName, lastName, userType);
@@ -241,6 +245,9 @@ router.post('/register', async (req, res) => {
       }
     });
   } catch (err) {
+    if (err.code === '23505' && err.constraint?.includes('email')) {
+      return res.status(409).json(duplicateEmailResponse);
+    }
     console.error('Registration error:', err);
     res.status(500).json({ error: 'Registration failed: ' + (err.message || 'Internal server error') });
   }
@@ -379,6 +386,15 @@ router.post('/login', async (req, res) => {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Login failed' });
   }
+});
+
+router.post('/logout', (req, res) => {
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+  });
+  return res.json({ success: true });
 });
 
 // ── ADMIN LOGIN (separate endpoint) ─────────────────────────────────────────
@@ -876,20 +892,25 @@ router.post('/forgot-password', async (req, res) => {
     failureStage = 'account-lookup';
     const user = await User.findByEmail(normalizedEmail);
     if (!user) {
-      return res.status(404).json({ error: 'No account is registered with this email address.' });
+      return res.json({ success: true, message: 'If an account exists, we sent a code.' });
     }
 
     failureStage = 'otp-creation';
     const otp = await OTP.create(normalizedEmail, 'reset_password');
     failureStage = 'email-delivery';
-    const sent = await emailService.sendOTP(normalizedEmail, otp.otp_code);
+    let sent = false;
+    try {
+      sent = await emailService.sendOTP(normalizedEmail, otp.otp_code);
+    } catch (emailError) {
+      console.error('Password reset email delivery failed:', emailError.message || emailError);
+    }
     if (!sent) {
       try {
         await OTP.consume(normalizedEmail, otp.otp_code, 'reset_password');
       } catch (cleanupError) {
         console.error('Failed to invalidate undelivered password reset code:', cleanupError.message || cleanupError);
       }
-      return res.status(503).json({ error: 'Unable to send code right now.' });
+      return res.status(503).json({ error: 'Unable to send reset code. Please try again later.' });
     }
 
     return res.json({ success: true, message: 'If an account exists, we sent a code.' });

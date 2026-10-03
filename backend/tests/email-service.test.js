@@ -26,6 +26,43 @@ test('Gmail API is configured with OAuth refresh-token credentials', () => {
   });
 });
 
+test('SMTP environment variables never select a non-Gmail transport', () => {
+  const originalSmtpHost = process.env.SMTP_HOST;
+  const originalSmtpUser = process.env.SMTP_USER;
+  const originalSmtpPass = process.env.SMTP_PASS;
+  process.env.SMTP_HOST = 'smtp.example.test';
+  process.env.SMTP_USER = 'legacy@example.test';
+  process.env.SMTP_PASS = 'legacy-secret';
+  try {
+    emailService.initTransporter();
+    assert.equal(emailService.mode, 'gmail-api');
+    assert.equal(emailService.getStatus().configured, true);
+  } finally {
+    if (originalSmtpHost === undefined) delete process.env.SMTP_HOST;
+    else process.env.SMTP_HOST = originalSmtpHost;
+    if (originalSmtpUser === undefined) delete process.env.SMTP_USER;
+    else process.env.SMTP_USER = originalSmtpUser;
+    if (originalSmtpPass === undefined) delete process.env.SMTP_PASS;
+    else process.env.SMTP_PASS = originalSmtpPass;
+    emailService.initTransporter();
+  }
+});
+
+test('generated certificate attachment is a clean landscape design', () => {
+  const svg = emailService.buildCertificateSvg({
+    certificate_type: 'Computer Science',
+    holder_name: 'Grace Hopper',
+    issuer_name: 'Example University',
+    certificate_id: 'CERT-001'
+  }, '2026-03-08T00:00:00.000Z');
+
+  assert.match(svg, /width="1600" height="900" viewBox="0 0 1600 900"/);
+  assert.match(svg, /CERTICHECK/);
+  assert.match(svg, /Grace Hopper/);
+  assert.match(svg, /Certificate ID: CERT-001/);
+  assert.doesNotMatch(svg, /sparkle|confetti|glitter|particle/i);
+});
+
 test('Gmail API reports missing setting names without exposing credential values', () => {
   const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
   delete process.env.GMAIL_REFRESH_TOKEN;
@@ -113,6 +150,7 @@ test('onboarding and credential emails use Gmail API and preserve attachments', 
   assert.match(certificateBodies.join(''), /certificate-verification-qr/);
   assert.match(certificateRaw, /Content-ID: <certificate-verification-qr>/);
   assert.match(certificateRaw, /Content-Type: image\/png; name="certificate-verification\.png"/);
+  assert.match(certificateRaw, /Content-Type: image\/svg\+xml; name="certicheck-certificate\.svg"/);
   assert.equal(certificateBodies.join('').includes('not-included'), false);
 
   assert.equal(await emailService.sendOTP('grace@example.edu', '246810'), true);

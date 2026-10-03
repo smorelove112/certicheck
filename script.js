@@ -96,7 +96,8 @@ const API_BASE_URL = window.CERTICHECK_API_BASE_URL ||
   (localApiOrigin ? `${localApiOrigin}/api` : "https://certicheck-backend-8hu3.onrender.com/api");
 const CERTIFICATE_PROGRAM_ID = '4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob';
 let anchorLoading;
-let passwordResetEmail = '';
+const PASSWORD_RESET_EMAIL_KEY = 'certicheck_password_reset_email';
+let passwordResetEmail = sessionStorage.getItem(PASSWORD_RESET_EMAIL_KEY) || '';
 
 async function withButtonLoading(button, asyncFn, loadingText = 'Please wait...') {
   if (!button || button.dataset.loading === '1') return;
@@ -333,8 +334,11 @@ function saveAuthSession(token, user) {
 
 function clearAuthSession() {
   localStorage.removeItem("certicheck_auth_token");
+  localStorage.removeItem("token");
   localStorage.removeItem("certicheck_user");
   localStorage.removeItem("certicheck_active_profile");
+  sessionStorage.removeItem("certicheck_auth_token");
+  sessionStorage.removeItem("token");
   verifiedIssuerUserId = null;
   currentUser = null;
   updateAuthUi();
@@ -828,14 +832,16 @@ function updateAuthUi() {
     const signoutBtn = document.createElement('button');
     signoutBtn.className = 'btn-ghost auth-item';
     signoutBtn.textContent = 'Sign Out';
-    signoutBtn.addEventListener('click', () => {
+    signoutBtn.addEventListener('click', async () => {
       clearAuthSession();
+      try {
+        await fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
+      } catch (error) {
+        console.warn('Server logout request failed:', error.message || error);
+      }
       navigate('home');
     });
     navActions.querySelectorAll('[data-page="signup"],[data-page="login"]').forEach(b => b.style.display = 'none');
-    navActions.querySelectorAll('[data-page="signup"],[data-page="login"]').forEach(b => b.style.display = 'none');
-    navActions.prepend(signoutBtn);
-    navActions.prepend(signoutBtn);
     navActions.prepend(signoutBtn);
   } else {
     navActions.querySelectorAll('[data-page="signup"],[data-page="login"]').forEach(b => b.style.display = 'inline-block');
@@ -1237,23 +1243,32 @@ function getMiniCertificateCardMarkup(certificate, { statusLabel = 'VALID', veri
     : `<div><dt>Network</dt><dd>${certificate.on_chain === true || certificate.onChain === true ? 'Solana Devnet' : 'Off-chain record'}</dd></div>`;
   const statusText = String(statusLabel).toUpperCase();
   const credentialDetails = getCredentialDetailsMarkup(metadata);
+  const date = issuedAt ? new Date(issuedAt).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC'
+  }) : 'Date not provided';
+  const extraDetails = [
+    `<div><dt>Status</dt><dd>${statusText}${certificate.revoked_at || certificate.revokedAt ? ` · revoked ${escapeCertificateMarkup(new Date(certificate.revoked_at || certificate.revokedAt).toLocaleString())}` : ''}</dd></div>`,
+    cidMarkup,
+    transactionMarkup
+  ].filter(Boolean).join('');
 
   return `<article class="mini-certificate-preview${verification ? ' verification-mini-certificate' : ''}${statusText === 'REVOKED' ? ' is-revoked' : ''}" aria-label="Certificate for ${escapeCertificateMarkup(holderName)}">
-    ${statusText === 'VALID' && verification ? `<div class="verification-pop-confetti" aria-hidden="true">${Array.from({ length: 24 }, (_, index) => `<span class="piece-${index % 7}" style="--x:${(index % 8 - 3.5) * 28}px;--y:${-80 - Math.floor(index / 8) * 34}px;--angle:${index * 41}deg;--pop-delay:${Math.floor(index / 6) * 20}ms"></span>`).join('')}</div>` : ''}
-    <div class="mini-certificate-brand"><span class="mini-certificate-seal" aria-hidden="true">${statusText === 'REVOKED' ? '!' : '✓'}</span><span>Certicheck <small>Digital credential</small></span><span class="mini-certificate-status">${statusText === 'VALID' && verification ? 'VERIFIED' : statusText}</span></div>
     <div class="mini-certificate-heading">CERTIFICATE OF ACHIEVEMENT</div>
     <div class="mini-certificate-type">${escapeCertificateMarkup(certificateType)}</div>
     <div class="mini-certificate-recipient">Presented to <strong>${escapeCertificateMarkup(holderName)}</strong></div>
-    <div class="mini-certificate-issuer">Issued by ${escapeCertificateMarkup(issuerName)}${issuedAt ? ` · ${escapeCertificateMarkup(new Date(issuedAt).toLocaleDateString())}` : ''}</div>
-    <dl class="mini-certificate-details">
-      <div><dt>Certificate ID</dt><dd>${escapeCertificateMarkup(certificateId)}</dd></div>
-      <div><dt>Status</dt><dd>${statusText}${certificate.revoked_at || certificate.revokedAt ? ` · revoked ${escapeCertificateMarkup(new Date(certificate.revoked_at || certificate.revokedAt).toLocaleString())}` : ''}</dd></div>
-      ${cidMarkup}
-      ${transactionMarkup}
-    </dl>
-    ${credentialDetails}
-    ${qr ? `<div class="mini-certificate-qr-wrap">${qr}<span>Scan to verify</span></div>` : ''}
-  </article>`;
+    <div class="mini-certificate-brand"><span class="mini-certificate-seal" aria-hidden="true">✓</span><span>CERTICHECK</span></div>
+    <div class="mini-certificate-issuer">Issued by ${escapeCertificateMarkup(issuerName)} · ${escapeCertificateMarkup(date)}</div>
+    <div class="mini-certificate-footer">
+      <span><strong>Certificate ID</strong><br>${escapeCertificateMarkup(certificateId)}</span>
+      <span class="mini-certificate-status">${statusText}</span>
+    </div>
+  </article>
+  ${extraDetails ? `<dl class="mini-certificate-details">${extraDetails}</dl>` : ''}
+  ${credentialDetails}
+  ${qr ? `<div class="mini-certificate-qr-wrap">${qr}<span>Scan to verify</span></div>` : ''}`;
 }
 
 function getMiniCertificateSvg(certificate) {
@@ -1265,29 +1280,24 @@ function getMiniCertificateSvg(certificate) {
   const status = String(certificate.status || certificate.verification_status || 'valid').toLowerCase() === 'revoked'
     ? 'REVOKED'
     : 'VALID';
-  const statusColor = status === 'VALID' ? '#059669' : '#dc2626';
+  const statusColor = status === 'VALID' ? '#047857' : '#b91c1c';
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520" role="img" aria-labelledby="title description">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title description">
   <title id="title">Certicheck mini certificate for ${escapeXml(certificate.holderName || certificate.holder_name)}</title>
   <desc id="description">${escapeXml(certificate.certificateType || certificate.certificate_type || 'Certificate')}, issued by ${escapeXml(certificate.issuerName || certificate.issuer_name)}.</desc>
-  <defs>
-    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff" /><stop offset="1" stop-color="#f4f0ff" /></linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7c3aed" /><stop offset="1" stop-color="#4338ca" /></linearGradient>
-  </defs>
-  <rect width="900" height="520" rx="32" fill="#ede9fe" />
-  <rect x="18" y="18" width="864" height="484" rx="25" fill="url(#paper)" stroke="#7c3aed" stroke-width="3" />
-  <path d="M52 58h796" stroke="#ddd6fe" stroke-width="2" />
-  <circle cx="92" cy="100" r="31" fill="url(#accent)" />
-  <path d="M78 100 88 110 107 87" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
-  <text x="140" y="94" fill="#312e81" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="3">CERTICHECK · SOLANA CREDENTIAL</text>
-  <text x="450" y="190" text-anchor="middle" fill="#6d28d9" font-family="Arial,sans-serif" font-size="15" font-weight="700" letter-spacing="5">CERTIFICATE OF ACHIEVEMENT</text>
-  <text x="450" y="252" text-anchor="middle" fill="#1e1b4b" font-family="Arial,sans-serif" font-size="34" font-weight="700">${escapeXml(certificate.certificateType || certificate.certificate_type || 'Certificate')}</text>
-  <text x="450" y="302" text-anchor="middle" fill="#64748b" font-family="Arial,sans-serif" font-size="17">Proudly presented to</text>
-  <text x="450" y="352" text-anchor="middle" fill="#312e81" font-family="Arial,sans-serif" font-size="30" font-weight="700">${escapeXml(certificate.holderName || certificate.holder_name || 'Certificate holder')}</text>
-  <text x="450" y="397" text-anchor="middle" fill="#64748b" font-family="Arial,sans-serif" font-size="16">Issued by ${escapeXml(certificate.issuerName || certificate.issuer_name || 'Certicheck issuer')} · ${escapeXml(date)}</text>
-  <path d="M52 434h796" stroke="#ddd6fe" stroke-width="2" />
-  <text x="60" y="470" fill="#475569" font-family="monospace" font-size="15">ID: ${escapeXml(certificate.certificateId || certificate.certificate_id)}</text>
-  <text x="840" y="470" text-anchor="end" fill="${statusColor}" font-family="Arial,sans-serif" font-size="15" font-weight="700">● ${status}</text>
+  <rect width="1600" height="900" fill="#fff" />
+  <rect x="40" y="40" width="1520" height="820" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="4" />
+  <text x="800" y="185" text-anchor="middle" fill="#475569" font-family="Arial,sans-serif" font-size="24" font-weight="700" letter-spacing="6">CERTIFICATE OF ACHIEVEMENT</text>
+  <text x="800" y="260" text-anchor="middle" fill="#1e293b" font-family="Arial,sans-serif" font-size="38" font-weight="600">${escapeXml(certificate.certificateType || certificate.certificate_type || 'Certificate')}</text>
+  <text x="800" y="355" text-anchor="middle" fill="#475569" font-family="Arial,sans-serif" font-size="25">Presented to</text>
+  <text x="800" y="430" text-anchor="middle" fill="#0f172a" font-family="Arial,sans-serif" font-size="54" font-weight="700">${escapeXml(certificate.holderName || certificate.holder_name || 'Certificate holder')}</text>
+  <circle cx="800" cy="535" r="34" fill="#312e81" />
+  <path d="m784 535 11 11 22-25" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+  <text x="800" y="600" text-anchor="middle" fill="#312e81" font-family="Arial,sans-serif" font-size="24" font-weight="700" letter-spacing="4">CERTICHECK</text>
+  <text x="800" y="680" text-anchor="middle" fill="#334155" font-family="Arial,sans-serif" font-size="24">Issued by ${escapeXml(certificate.issuerName || certificate.issuer_name || 'Certicheck issuer')} · ${escapeXml(date)}</text>
+  <path d="M110 740h1380" stroke="#e2e8f0" stroke-width="2" />
+  <text x="120" y="790" fill="#334155" font-family="Arial,sans-serif" font-size="21">Certificate ID: ${escapeXml(certificate.certificateId || certificate.certificate_id)}</text>
+  <text x="1480" y="790" text-anchor="end" fill="${statusColor}" font-family="Arial,sans-serif" font-size="21" font-weight="700">${status}</text>
 </svg>`;
 }
 
@@ -1320,17 +1330,9 @@ function getCertificateIssuanceSuccessMarkup(certificate, warnings = []) {
   const ipfsMarkup = ipfsCid
     ? `<span class="celebration-break"><strong>${ipfsSource === 'pinata' ? 'IPFS CID:' : 'IPFS record:'}</strong> ${ipfsSource === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(ipfsCid)}" target="_blank" rel="noopener noreferrer">${escapeCertificateMarkup(ipfsCid)}</a>` : escapeCertificateMarkup(ipfsCid)}</span>`
     : '';
-  const confetti = Array.from({ length: 28 }, (_, index) => `<span class="celebration-confetti-piece piece-${index % 7}"></span>`).join('');
-
   return `<section class="issuance-celebration" aria-labelledby="issuanceCelebrationTitle">
-    <div class="celebration-scene" aria-hidden="true">
-      <span class="celebration-flare flare-one"></span>
-      <span class="celebration-flare flare-two"></span>
-      <span class="celebration-glitter"></span>
-      <div class="celebration-confetti">${confetti}</div>
-    </div>
     <div class="issuance-celebration-content">
-      <div class="celebration-kicker"><span aria-hidden="true">✦</span> ${onChain ? 'On-chain issuance complete' : 'Certificate issuance complete · off-chain'}</div>
+      <div class="celebration-kicker">${onChain ? 'On-chain issuance complete' : 'Certificate issuance complete · off-chain'}</div>
       <h3 id="issuanceCelebrationTitle">Congratulations, ${holderName}!</h3>
       <p class="celebration-subtitle">Your ${certificateType} certificate is now issued.</p>
       ${getMiniCertificateCardMarkup(certificate, { statusLabel: status.toUpperCase() })}
@@ -1974,17 +1976,36 @@ function showIssuerActivationOnLogin(email = '', error = '') {
   const loginToggleRow = document.getElementById('activationLoginToggleRow');
   const activationEmail = document.getElementById('activationEmail');
   const activationError = document.getElementById('activationError');
+  const postVerifyLinks = document.getElementById('loginPostVerifyLinks');
   if (!activationSection || !signInFields) return;
 
   signInFields.hidden = true;
   activationSection.hidden = false;
   activationToggleRow.hidden = true;
   loginToggleRow.hidden = false;
+  postVerifyLinks.hidden = false;
   if (activationEmail && email) activationEmail.value = email;
   if (activationError) {
     activationError.textContent = error;
     activationError.style.display = error ? 'block' : 'none';
   }
+}
+
+function showPasswordLoginOnLogin(email = '') {
+  const signInFields = document.getElementById('loginSignInFields');
+  const activationSection = document.getElementById('loginIssuerActivation');
+  const activationToggleRow = document.getElementById('loginActivationToggleRow');
+  const loginToggleRow = document.getElementById('activationLoginToggleRow');
+  const postVerifyLinks = document.getElementById('loginPostVerifyLinks');
+  const loginEmail = document.getElementById('loginEmail');
+  if (!signInFields || !activationSection) return;
+
+  signInFields.hidden = false;
+  activationSection.hidden = true;
+  activationToggleRow.hidden = false;
+  loginToggleRow.hidden = true;
+  postVerifyLinks.hidden = false;
+  if (loginEmail && email) loginEmail.value = email;
 }
 
 function initIssuerActivationForm() {
@@ -1998,6 +2019,9 @@ function initIssuerActivationForm() {
   const button = document.getElementById('issuerActivationBtn');
   const resendButton = document.getElementById('resendActivationCode');
   const resendMessage = document.getElementById('activationResendMessage');
+  const credentialsFields = document.getElementById('activationCredentialsFields');
+  const setupTitle = document.getElementById('loginIssuerSetupTitle');
+  const postVerifyLinks = document.getElementById('loginPostVerifyLinks');
   let activationCodeVerified = false;
 
   if (!form || form.dataset.bound === 'true') return;
@@ -2010,6 +2034,7 @@ function initIssuerActivationForm() {
     document.getElementById('loginIssuerActivation').hidden = true;
     document.getElementById('loginActivationToggleRow').hidden = false;
     document.getElementById('activationLoginToggleRow').hidden = true;
+    postVerifyLinks.hidden = false;
   });
   resendButton?.addEventListener('click', async () => {
     errorEl.style.display = 'none';
@@ -2037,11 +2062,14 @@ function initIssuerActivationForm() {
         codeEl.readOnly = false;
         emailEl.readOnly = false;
         passwordFields.hidden = true;
+        credentialsFields.hidden = false;
         passwordEl.required = false;
         confirmEl.required = false;
         passwordEl.value = '';
         confirmEl.value = '';
         button.textContent = 'Verify code';
+        setupTitle.textContent = 'Issuer account setup';
+        postVerifyLinks.hidden = false;
         resendMessage.textContent = data.message || 'A new activation code has been sent to your email.';
         resendMessage.style.color = 'var(--text-secondary)';
         resendMessage.style.display = 'block';
@@ -2072,9 +2100,12 @@ function initIssuerActivationForm() {
           activationCodeVerified = true;
           emailEl.readOnly = true;
           codeEl.readOnly = true;
+          credentialsFields.hidden = true;
           passwordFields.hidden = false;
           passwordEl.required = true;
           confirmEl.required = true;
+          setupTitle.textContent = 'Create your password';
+          postVerifyLinks.hidden = true;
           button.textContent = 'Create password';
         } catch (error) {
           errorEl.textContent = error.message || 'Unable to verify activation code';
@@ -2117,6 +2148,18 @@ function initIssuerActivationForm() {
           showLoginNotice('Account activated', data.message || 'You can now sign in.');
         }
       } catch (error) {
+        if (/invalid|expired/i.test(error.message || '')) {
+          activationCodeVerified = false;
+          emailEl.readOnly = false;
+          codeEl.readOnly = false;
+          credentialsFields.hidden = false;
+          passwordFields.hidden = true;
+          passwordEl.required = false;
+          confirmEl.required = false;
+          button.textContent = 'Verify code';
+          setupTitle.textContent = 'Issuer account setup';
+          postVerifyLinks.hidden = false;
+        }
         errorEl.textContent = error.message || 'Unable to activate issuer account';
         errorEl.style.display = 'block';
       }
@@ -2154,9 +2197,12 @@ function initForgotPasswordForm() {
         if (!response.ok) throw new Error(data.error || 'Unable to send a reset code');
 
         passwordResetEmail = email;
+        sessionStorage.setItem(PASSWORD_RESET_EMAIL_KEY, email);
         navigate('verify-reset-otp');
       } catch (error) {
-        errorEl.textContent = error.message || 'Unable to send a reset code';
+        errorEl.textContent = error.message === 'Unable to send code right now.'
+          ? 'Unable to send reset code. Please try again later.'
+          : error.message || 'Unable to send reset code. Please try again later.';
         errorEl.style.display = 'block';
       }
     }, 'Sending code...');
@@ -2213,6 +2259,7 @@ function initResetPasswordForm() {
         if (!response.ok) throw new Error(data.error || 'Unable to reset password');
 
         passwordResetEmail = '';
+        sessionStorage.removeItem(PASSWORD_RESET_EMAIL_KEY);
         form.reset();
         navigate('login');
         showLoginNotice('Password reset', data.message || 'Your password has been reset successfully. You can now sign in.');
@@ -3282,6 +3329,9 @@ function updateThemeToggleState() {
 function initSignupForm() {
   const btn = document.getElementById("signupBtn");
   const emailEl = document.getElementById("signupEmail");
+  const emailErrorEl = document.getElementById("signupEmailError");
+  const emailErrorMessageEl = document.getElementById("signupEmailErrorMessage");
+  const emailLoginButton = document.getElementById("signupEmailLogin");
   const firstNameEl = document.getElementById("signupFirstName");
   const lastNameEl = document.getElementById("signupLastName");
   const errorEl = document.getElementById("signupError");
@@ -3289,8 +3339,27 @@ function initSignupForm() {
   if (!btn || btn.dataset.bound === "true") return;
   btn.dataset.bound = "true";
 
+  const showDuplicateEmailError = () => {
+    emailErrorMessageEl.textContent = 'This email has already been used. Please log in or try another email.';
+    emailErrorEl.hidden = false;
+  };
+
+  emailEl.addEventListener('input', () => {
+    emailErrorEl.hidden = true;
+    emailErrorMessageEl.textContent = '';
+    errorEl.style.display = 'none';
+  });
+  emailLoginButton?.addEventListener('click', () => {
+    const loginEmail = document.getElementById('loginEmail');
+    if (loginEmail) loginEmail.value = emailEl.value.trim().toLowerCase();
+    navigate('login');
+    showPasswordLoginOnLogin(emailEl.value.trim().toLowerCase());
+  });
+
   btn.addEventListener("click", async () => {
     errorEl.style.display = "none";
+    emailErrorEl.hidden = true;
+    emailErrorMessageEl.textContent = '';
     const email = emailEl.value.trim().toLowerCase();
     const firstName = firstNameEl.value.trim();
     const lastName = lastNameEl.value.trim();
@@ -3308,6 +3377,30 @@ function initSignupForm() {
 
     await withButtonLoading(btn, async () => {
       try {
+        const draft = loadPendingApplicationDraft();
+        if (draft) {
+          draft.contactEmail = email;
+          const applicationResponse = await fetch(`${API_BASE_URL}/issuers/apply`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(draft)
+          });
+          const applicationData = await applicationResponse.json().catch(() => ({}));
+          if (!applicationResponse.ok) {
+            const message = applicationData.message || applicationData.error || 'The application could not be submitted.';
+            if (applicationResponse.status === 409 || /email already registered/i.test(message)) {
+              showDuplicateEmailError();
+              return;
+            }
+            throw new Error(message);
+          }
+
+          clearPendingApplicationDraft();
+          navigate('login');
+          showLoginNotice('Application submitted', 'Your issuer account application was submitted and is pending review.');
+          return;
+        }
+
         const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3319,34 +3412,24 @@ function initSignupForm() {
           })
         });
         const registerData = await registerResponse.json().catch(() => ({}));
-        if (!registerResponse.ok) throw new Error(registerData.error || 'Registration failed');
-
-        const draft = loadPendingApplicationDraft();
-        let applicationNotice = '';
-        if (draft) {
-          try {
-            draft.contactEmail = email;
-            const applicationResponse = await fetch(`${API_BASE_URL}/applications/submit`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(draft)
-            });
-            const applicationData = await applicationResponse.json().catch(() => ({}));
-            if (applicationResponse.ok) {
-              clearPendingApplicationDraft();
-            } else {
-              applicationNotice = ` Your application was not submitted: ${applicationData.error || 'Please submit it again.'}`;
-            }
-          } catch (applicationError) {
-            applicationNotice = ` Your application could not be submitted: ${applicationError.message || 'Please submit it again.'}`;
+        if (!registerResponse.ok) {
+          const message = registerData.message || registerData.error || 'Registration failed';
+          if (registerResponse.status === 409 || /email already registered/i.test(message)) {
+            showDuplicateEmailError();
+            return;
           }
+          throw new Error(message);
         }
 
         navigate('login');
-        showLoginNotice('Account created', `${registerData.message || 'Your account is pending admin approval. You can sign in after it has been approved.'}${applicationNotice}`);
+        showLoginNotice('Account created', registerData.message || 'Your account is pending admin approval. You can sign in after it has been approved.');
       } catch (err) {
-        errorEl.textContent = err.message || 'Unable to complete registration';
-        errorEl.style.display = 'block';
+        if (/email already registered/i.test(err.message || '')) {
+          showDuplicateEmailError();
+        } else {
+          errorEl.textContent = err.message || 'Unable to complete registration';
+          errorEl.style.display = 'block';
+        }
       }
     }, 'Creating account...');
   });
@@ -3419,7 +3502,7 @@ function initLoginForm() {
               navigate('change-password');
               return;
             }
-            return navigate(data.user.user_type === 'admin' ? 'home' : data.user.user_type === 'issuer' ? 'home' : 'holder');
+            return navigate('home');
           }
         }
 
@@ -3496,7 +3579,7 @@ function initChangePasswordForm() {
 
       const user = { ...getStoredUser(), ...(data.user || {}), must_change_password: false };
       saveAuthSession(data.token, user);
-      navigate(user.user_type === 'admin' || user.user_type === 'issuer' ? 'home' : 'holder');
+      navigate('home');
     } catch (err) {
       errorEl.textContent = err.message || "Unable to change password";
       errorEl.style.display = "block";
@@ -3763,6 +3846,7 @@ function setApplyStep(step) {
 async function submitApplyForm() {
   const name  = document.getElementById("contactName")?.value || "";
   const emailInput = document.getElementById("contactEmailInput");
+  const emailError = document.getElementById('contactEmailError');
   const email = (emailInput?.value || "").trim();
   const volumeSelect = document.getElementById("volume");
   const volumeCustomInput = document.getElementById("volumeCustom");
@@ -3788,10 +3872,22 @@ async function submitApplyForm() {
     wallet: document.getElementById("wallet")?.value.trim() || ""
   };
 
+  if (emailError) {
+    emailError.hidden = true;
+    emailError.textContent = '';
+  }
   if (!name.trim() || !email || !email.includes('@')) {
-    alert('Enter your name and official company or department email.');
+    if (!name.trim()) {
+      alert('Enter your full name.');
+    } else if (emailError) {
+      emailError.textContent = 'Enter a valid email address.';
+      emailError.hidden = false;
+    }
     return;
   }
+  emailInput?.addEventListener('input', () => {
+    if (emailError) emailError.hidden = true;
+  }, { once: true });
 
   const headers = {
     'Content-Type': 'application/json'
@@ -3821,7 +3917,13 @@ async function submitApplyForm() {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !(data.success || data.id || data.application)) {
-      throw new Error(data.error || 'The application could not be submitted.');
+      const message = data.message || data.error || 'The application could not be submitted.';
+      if (response.status === 409 && data.success === false && emailError) {
+        emailError.textContent = message;
+        emailError.hidden = false;
+        return;
+      }
+      throw new Error(message);
     }
 
     clearPendingApplicationDraft();

@@ -31,7 +31,6 @@ class EmailService {
       .map(([name]) => name);
     const hasGmailConfig = missingGmailSettings.length < Object.keys(gmailEnvironment).length;
     this.missingGmailSettings = missingGmailSettings;
-    this.transporter = null;
     this.oauth2Client = null;
     this.gmailApi = null;
     if (missingGmailSettings.length === 0) {
@@ -50,7 +49,7 @@ class EmailService {
     if (hasGmailConfig) {
       this.mode = 'disabled';
       this.transportVerification = { status: 'failed', errorCode: 'GMAIL_OAUTH_CONFIG_INCOMPLETE' };
-      console.error('📧 Email Service: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, and GMAIL_FROM are all required');
+      console.error(`📧 Email Service: Gmail API configuration is missing ${missingGmailSettings.join(', ')}`);
       return;
     }
     this.mode = process.env.NODE_ENV === 'production' ? 'disabled' : 'console';
@@ -131,7 +130,7 @@ class EmailService {
         `--${boundaryRelated}`,
         `Content-Type: ${safeHeader(attachment.contentType || 'application/octet-stream')}; name="${safeHeader(attachment.filename || 'attachment')}"`,
         'Content-Transfer-Encoding: base64',
-        `Content-Disposition: inline; filename="${safeHeader(attachment.filename || 'attachment')}"`,
+        `Content-Disposition: ${attachment.cid ? 'inline' : 'attachment'}; filename="${safeHeader(attachment.filename || 'attachment')}"`,
         ...(attachment.cid ? [`Content-ID: <${safeHeader(attachment.cid)}>`] : []),
         '',
         wrapBase64(content.toString('base64'))
@@ -170,7 +169,7 @@ class EmailService {
         return false;
       }
     }
-    console.error('📧 Email Send Error: Gmail API OAuth is not configured');
+    console.error('📧 Gmail API send unavailable: OAuth is not configured');
     return false;
   }
 
@@ -249,13 +248,41 @@ class EmailService {
       : '<p><strong>Network status:</strong> Off-chain record</p>';
     const safeVerificationUrl = escapeHtml(verificationUrl);
     const qrCode = await QRCode.toBuffer(verificationUrl, { type: 'png', width: 180, margin: 1 });
+    const certificateSvg = this.buildCertificateSvg(certificate, issuedAt);
     return this.sendEmail({
       to: certificate.holder_email || certificate.holderEmail,
       subject: `Your ${certificate.certificate_type || certificate.certificateType || 'certificate'} from ${certificate.issuer_name || certificate.issuerName || 'CertiCheck'}`,
       text: `Hello ${certificate.holder_name || certificate.holderName}, your ${certificate.certificate_type || certificate.certificateType} certificate (${certificate.certificate_id || certificate.certificateId}) has been issued by ${certificate.issuer_name || certificate.issuerName}. ${chainStatus}. Verify it at ${verificationUrl}.`,
-      attachments: [{ filename: 'certificate-verification.png', content: qrCode, contentType: 'image/png', cid: 'certificate-verification-qr' }],
-      html: `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;padding:24px;color:#1e1b4b"><div style="border:2px solid #7c3aed;border-radius:16px;padding:24px;background:#faf8ff"><p style="color:#6d28d9;font-weight:bold;letter-spacing:2px">CERTICHECK · DIGITAL CREDENTIAL</p><h1>${certificateType}</h1><p>Presented to <strong>${holderName}</strong></p><p>Issued by ${issuerName} on ${escapeHtml(new Date(issuedAt).toLocaleDateString())}</p><p><strong>Certificate ID:</strong> ${certificateId}</p><p><strong>Issuance status:</strong> Valid</p><p><strong>On-chain status:</strong> ${chainStatus}</p>${details ? `<h2>Credential details</h2><ul>${details}</ul>` : ''}${ipfsLink}${transactionLink}<p><a href="${safeVerificationUrl}">View and verify your certificate</a></p><p><img src="cid:certificate-verification-qr" width="180" height="180" alt="QR code to verify this certificate"/></p></div></div>`
+      attachments: [
+        { filename: 'certicheck-certificate.svg', content: Buffer.from(certificateSvg), contentType: 'image/svg+xml' },
+        { filename: 'certificate-verification.png', content: qrCode, contentType: 'image/png', cid: 'certificate-verification-qr' }
+      ],
+      html: `<div style="font-family:Arial,sans-serif;max-width:900px;width:100%;margin:auto;padding:24px;box-sizing:border-box;color:#1e293b"><div style="box-sizing:border-box;aspect-ratio:16/9;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:5%;border:1px solid #cbd5e1;border-radius:8px;background:#fff;text-align:center"><p style="margin:0;color:#475569;font-size:12px;font-weight:bold;letter-spacing:4px">CERTIFICATE OF ACHIEVEMENT</p><h1 style="margin:0;font-size:28px;font-weight:600">${certificateType}</h1><p style="margin:0;color:#475569">Presented to <strong style="display:block;margin-top:6px;color:#0f172a;font-size:32px">${holderName}</strong></p><div style="width:34px;height:34px;display:grid;place-items:center;border-radius:50%;background:#312e81;color:#fff;font-size:23px;font-weight:bold">✓</div><strong style="color:#312e81;letter-spacing:3px">CERTICHECK</strong><p style="margin:0">Issued by ${issuerName} · ${escapeHtml(new Date(issuedAt).toLocaleDateString())}</p><p style="width:100%;box-sizing:border-box;margin:0;padding-top:12px;border-top:1px solid #e2e8f0;text-align:left"><strong>Certificate ID:</strong> ${certificateId}<span style="float:right;color:#047857"><strong>VALID</strong></span></p></div><p><strong>On-chain status:</strong> ${chainStatus}</p>${details ? `<h2>Credential details</h2><ul>${details}</ul>` : ''}${ipfsLink}${transactionLink}<p><a href="${safeVerificationUrl}">View and verify your certificate</a></p><p><img src="cid:certificate-verification-qr" width="180" height="180" alt="QR code to verify this certificate"/></p></div>`
     });
+  }
+
+  buildCertificateSvg(certificate, issuedAt) {
+    const xml = value => escapeHtml(value);
+    const date = new Date(issuedAt).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'UTC'
+    });
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<rect width="1600" height="900" fill="#fff"/>
+<rect x="40" y="40" width="1520" height="820" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="4"/>
+<text x="800" y="185" text-anchor="middle" fill="#475569" font-family="Arial,sans-serif" font-size="24" font-weight="700" letter-spacing="6">CERTIFICATE OF ACHIEVEMENT</text>
+<text x="800" y="260" text-anchor="middle" fill="#1e293b" font-family="Arial,sans-serif" font-size="38" font-weight="600">${xml(certificate.certificate_type || certificate.certificateType || 'Certificate')}</text>
+<text x="800" y="355" text-anchor="middle" fill="#475569" font-family="Arial,sans-serif" font-size="25">Presented to</text>
+<text x="800" y="430" text-anchor="middle" fill="#0f172a" font-family="Arial,sans-serif" font-size="54" font-weight="700">${xml(certificate.holder_name || certificate.holderName || 'Certificate holder')}</text>
+<circle cx="800" cy="535" r="34" fill="#312e81"/><path d="m784 535 11 11 22-25" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="800" y="600" text-anchor="middle" fill="#312e81" font-family="Arial,sans-serif" font-size="24" font-weight="700" letter-spacing="4">CERTICHECK</text>
+<text x="800" y="680" text-anchor="middle" fill="#334155" font-family="Arial,sans-serif" font-size="24">Issued by ${xml(certificate.issuer_name || certificate.issuerName || 'CertiCheck issuer')} · ${xml(date)}</text>
+<path d="M110 740h1380" stroke="#e2e8f0" stroke-width="2"/>
+<text x="120" y="790" fill="#334155" font-family="Arial,sans-serif" font-size="21">Certificate ID: ${xml(certificate.certificate_id || certificate.certificateId || '')}</text>
+<text x="1480" y="790" text-anchor="end" fill="#047857" font-family="Arial,sans-serif" font-size="21" font-weight="700">VALID</text>
+</svg>`;
   }
 
   // Helper method for tests only.

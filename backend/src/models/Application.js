@@ -3,6 +3,13 @@ const User = require('./User');
 const demoAppStore = require('../services/demoApplicationStore');
 
 class Application {
+  static findApplicationByEmail(email) {
+    if (process.env.DEMO_MODE === 'true') {
+      return demoAppStore.findApplicationByEmail(email);
+    }
+    return null;
+  }
+
   static async create({
     issuerId,
     applicantEmail,

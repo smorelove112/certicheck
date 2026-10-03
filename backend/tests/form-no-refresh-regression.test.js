@@ -48,6 +48,15 @@ test('signup creates accounts directly and does not depend on email delivery', (
   assert.doesNotMatch(indexHtml + scriptJs, /Send OTP|verify-otp|send-otp|welcomeEmailNotice/);
 });
 
+test('duplicate registration presents an editable-email error with a login action', () => {
+  assert.match(indexHtml, /id="signupEmailErrorMessage"/);
+  assert.match(indexHtml, /id="signupEmailLogin"[^>]*>Log in/);
+  assert.match(scriptJs, /applicationResponse\.status === 409/);
+  assert.match(scriptJs, /registerResponse\.status === 409/);
+  assert.match(scriptJs, /This email has already been used\. Please log in or try another email\./);
+  assert.match(scriptJs, /showPasswordLoginOnLogin\(emailEl\.value\.trim\(\)\.toLowerCase\(\)\)/);
+});
+
 test('failed application submissions show an error instead of a false success state', () => {
   const submitFunction = scriptJs.match(/async function submitApplyForm\(\) \{[\s\S]*?\n\}/)?.[0] || '';
   assert.match(indexHtml, /id="applicationSubmitError"[^>]*role="alert"/);
@@ -62,13 +71,13 @@ test('failed application submissions show an error instead of a false success st
 test('static localhost previews use the deployed API instead of an unavailable localhost backend', () => {
   assert.match(scriptJs, /const localApiOrigin = \["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)\s*&& \["3000", "5000"\]\.includes\(window\.location\.port\)\s*\?\s*window\.location\.origin\s*:\s*null;/);
   assert.match(scriptJs, /"https:\/\/certicheck-backend-8hu3\.onrender\.com\/api"/);
-  assert.match(indexHtml, /script\.js\?v=20261003-login-activation-resend/);
+  assert.match(indexHtml, /script\.js\?v=20260308-gmail-certificate-refresh/);
 });
 
 test('login page includes the approved issuer activation flow', () => {
   assert.match(indexHtml, /id="page-login"/);
   assert.match(indexHtml, /id="loginIssuerActivation"/);
-  assert.match(indexHtml, /class="login-section-title">Issuer account setup/);
+  assert.match(indexHtml, /class="login-section-title" id="loginIssuerSetupTitle">Issuer account setup/);
   assert.match(indexHtml, /id="loginSignInFields" hidden/);
   assert.match(indexHtml, /id="issuerActivationForm"/);
   assert.match(indexHtml, /<label class="field-label" for="activationCode">Activation code<\/label>/);
@@ -96,20 +105,25 @@ test('user password-reset screens are wired to the email OTP endpoints', () => {
   assert.match(scriptJs, /if \(page === "forgot-password"\) initForgotPasswordForm\(\)/);
   assert.match(scriptJs, /if \(page === "verify-reset-otp"\) initResetPasswordForm\(\)/);
   assert.match(scriptJs, /\/auth\/forgot-password/);
+  assert.match(scriptJs, /sessionStorage\.setItem\(PASSWORD_RESET_EMAIL_KEY, email\)/);
+  assert.match(scriptJs, /Sending code\.\.\./);
   assert.match(scriptJs, /\/auth\/reset-password/);
   assert.match(scriptJs, /if \(!\/\^\\d\{6\}\$\/\.test\(otpCode\)\)/);
   assert.doesNotMatch(adminHtml + adminJs, /forgot-password|verify-reset-otp|adminResetOtp/i);
 });
 
-test('certificate verification shows a credential-rich card and only celebrates valid results', () => {
+test('certificate preview and download use a restrained landscape design', () => {
   assert.match(indexHtml, /id="verificationMiniCertificate"/);
   assert.match(scriptJs, /function getMiniCertificateCardMarkup/);
   assert.match(scriptJs, /certificates\/qr\//);
   assert.match(scriptJs, /verification: true/);
-  assert.match(scriptJs, /statusText === 'VALID' && verification/);
   assert.match(scriptJs, /verification \? ' verification-mini-certificate' : ''/);
   assert.match(scriptJs, /statusText === 'REVOKED' \? ' is-revoked' : ''/);
-  assert.match(scriptJs, /statusText === 'VALID' && verification \? 'VERIFIED' : statusText/);
+  assert.match(scriptJs, /width="1600" height="900" viewBox="0 0 1600 900"/);
+  assert.match(scriptJs, /CERTIFICATE OF ACHIEVEMENT/);
+  assert.match(scriptJs, /Certificate ID/);
+  assert.doesNotMatch(scriptJs, /verification-pop-confetti|celebration-confetti-piece|celebration-glitter/);
+  assert.doesNotMatch(stylingCss, /verification-confetti-pop|celebration-confetti-fall|celebration-glitter-drift/);
 });
 
 test('issuer activation guidance explains the emailed code and password setup', () => {
@@ -200,6 +214,6 @@ test('shared buttons have fast press feedback and accessible disabled styling', 
   assert.match(stylingCss, /button:active:not\(:disabled\)[\s\S]*?transform: scale\(0\.97\)/);
   assert.match(stylingCss, /button:disabled, \.btn:disabled\s*\{[\s\S]*?cursor: wait;[\s\S]*?opacity: 0\.7/);
   assert.match(stylingCss, /@media \(prefers-reduced-motion: reduce\)/);
-  assert.match(indexHtml, /styling\.css\?v=20261003-issuance-success-modal/);
+  assert.match(indexHtml, /styling\.css\?v=20260308-certificate-refresh/);
   assert.match(adminHtml, /styling\.css\?v=20261002-button-interaction/);
 });

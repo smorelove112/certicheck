@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link rel="preconnect" href="https://certicheck-backend-8hu3.onrender.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="styling.css?v=20261003-issuance-success-modal"/>
+  <link rel="stylesheet" href="styling.css?v=20260308-certificate-refresh"/>
 </head>
 <body>
 
@@ -62,7 +62,7 @@
   <div id="page-home" class="page active">
     <div id="roleHomePanel" class="role-workspace-shell" style="display:none;">
       <div class="page-wrap role-home-container">
-        <div class="page-header">
+        <div class="page-header" id="loginHeader">
           <div id="roleHomeBadge" class="page-tag">Issuer Workspace</div>
           <h1 id="roleHomeTitle" class="page-title">Welcome back</h1>
           <p id="roleHomeMeta" class="page-desc">Your certificate workspace.</p>
@@ -365,6 +365,10 @@
         <div class="field">
           <label class="field-label" for="signupEmail">Email</label>
           <input class="field-input" id="signupEmail" name="email" type="email" autocomplete="email" placeholder="your@email.com"/>
+          <div id="signupEmailError" class="inline-field-error" role="alert" aria-live="polite" hidden>
+            <span id="signupEmailErrorMessage"></span>
+            <button id="signupEmailLogin" type="button" class="btn-ghost">Log in</button>
+          </div>
         </div>
         <div class="field">
           <label class="field-label" for="signupFirstName">First Name</label>
@@ -377,6 +381,8 @@
         <p style="font-size:13px;color:var(--text-secondary);margin:8px 0 16px;">We will email you when your issuer application is received and reviewed. If approved, use the activation code to create your password.</p>
         <div id="signupError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
         <button class="btn-primary" id="signupBtn" style="width:100%">Create Account</button>
+        <div id="loginSupportLinks">
+        <div id="loginPostVerifyLinks">
         <p style="text-align:center;color:var(--text-secondary);margin-top:16px;font-size:13px">
           Already have an account? <button class="btn-ghost" data-page="login" style="background:none;border:none;padding:0;text-decoration:underline;cursor:pointer">Login</button>
         </p>
@@ -411,18 +417,20 @@
           <button class="btn-primary" id="loginBtn" style="width:100%">Login</button>
         </div>
         <section id="loginIssuerActivation">
-          <h2 class="login-section-title">Issuer account setup</h2>
+          <h2 class="login-section-title" id="loginIssuerSetupTitle">Issuer account setup</h2>
           <form id="issuerActivationForm">
-            <div class="field">
-              <label class="field-label" for="activationEmail">Email</label>
-              <input class="field-input" id="activationEmail" type="email" autocomplete="email" required/>
+            <div id="activationCredentialsFields">
+              <div class="field">
+                <label class="field-label" for="activationEmail">Email</label>
+                <input class="field-input" id="activationEmail" type="email" autocomplete="email" required/>
+              </div>
+              <div class="field">
+                <label class="field-label" for="activationCode">Activation code</label>
+                <input class="field-input" id="activationCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required/>
+              </div>
+              <button class="btn-ghost" id="resendActivationCode" type="button" style="background:none;border:none;padding:0;text-decoration:underline;cursor:pointer">Resend activation code</button>
+              <div id="activationResendMessage" role="status" style="font-size:13px;margin:10px 0;display:none;"></div>
             </div>
-            <div class="field">
-              <label class="field-label" for="activationCode">Activation code</label>
-              <input class="field-input" id="activationCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required/>
-            </div>
-            <button class="btn-ghost" id="resendActivationCode" type="button" style="background:none;border:none;padding:0;text-decoration:underline;cursor:pointer">Resend activation code</button>
-            <div id="activationResendMessage" role="status" style="font-size:13px;margin:10px 0;display:none;"></div>
             <div id="activationPasswordFields" hidden>
               <div class="field">
                 <label class="field-label" for="activationPassword">Create password</label>
@@ -449,6 +457,8 @@
         <p id="activationLoginToggleRow" style="text-align:center;color:var(--text-secondary);margin-top:12px;font-size:13px">
           <button class="btn-ghost" id="backToPasswordLogin" type="button" style="background:none;border:none;padding:0;text-decoration:underline;cursor:pointer">Already have a password? Sign in</button>
         </p>
+        </div>
+        </div>
       </div>
     </div>
     <dialog id="loginNoticeDialog" class="login-notice-dialog" aria-labelledby="loginNoticeTitle" aria-describedby="loginNoticeMessage" aria-modal="true">
@@ -594,6 +604,7 @@
             <label class="field-label" for="contactEmail">Official Company / Department Email</label>
             <div id="contactEmailWrapper">
               <input class="field-input" id="contactEmailInput" placeholder="jane@organisation.com" type="email" autocomplete="email" required/>
+              <div id="contactEmailError" class="inline-field-error" role="alert" aria-live="polite" hidden></div>
               <div id="contactEmailDisplay" style="display:none;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);color:var(--text-primary);"></div>
               <input type="hidden" id="contactEmail" />
             </div>
@@ -814,6 +825,6 @@
     </div>
   </footer>
 
-  <script src="script.js?v=20261003-login-activation-resend"></script>
+  <script src="script.js?v=20260308-gmail-certificate-refresh"></script>
 </body>
 </html>

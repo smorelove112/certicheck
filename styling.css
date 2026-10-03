@@ -2503,79 +2503,11 @@ body.dark .powered-by-logo img {
 .issuance-celebration {
   position: relative;
   isolation: isolate;
-  overflow: hidden;
   padding: clamp(20px, 4vw, 38px);
-  border: 1px solid rgba(251, 191, 36, 0.36);
-  border-radius: 20px;
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(253, 224, 71, 0.2), transparent 48%),
-    linear-gradient(145deg, #17133a 0%, #30206a 48%, #171b49 100%);
-  box-shadow: 0 22px 60px rgba(79, 46, 152, 0.2);
-  color: #fff;
-}
-
-.celebration-scene,
-.celebration-confetti {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.celebration-scene {
-  z-index: -1;
-  background:
-    radial-gradient(circle at 16% 16%, rgba(251, 191, 36, 0.24), transparent 25%),
-    radial-gradient(circle at 85% 28%, rgba(192, 132, 252, 0.24), transparent 28%);
-}
-
-.celebration-flare {
-  position: absolute;
-  top: -90px;
-  width: 300px;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  opacity: 0.34;
-  background: repeating-conic-gradient(from 0deg, rgba(253, 224, 71, 0.72) 0deg 1deg, transparent 1deg 12deg);
-  mask-image: radial-gradient(circle, transparent 0 12%, #000 13% 42%, transparent 72%);
-  animation: celebration-flare-pulse 5s ease-in-out infinite;
-}
-
-.flare-one { left: 4%; }
-.flare-two { right: 2%; top: -54px; width: 250px; animation-delay: -2.5s; }
-
-.celebration-glitter {
-  position: absolute;
-  inset: 0;
-  opacity: 0.55;
-  background-image:
-    radial-gradient(circle, #fff7b0 0 1px, transparent 1.8px),
-    radial-gradient(circle, #f0abfc 0 1px, transparent 1.8px),
-    radial-gradient(circle, #fde68a 0 1px, transparent 1.8px);
-  background-size: 79px 67px, 113px 91px, 151px 103px;
-  background-position: 4px 7px, 40px 21px, 82px 58px;
-  animation: celebration-glitter-drift 12s linear infinite;
-}
-
-.celebration-confetti-piece {
-  position: absolute;
-  top: -14px;
-  left: calc((var(--piece) * 13 + 7) * 1%);
-  width: 7px;
-  height: 12px;
-  border-radius: 2px;
-  background: var(--confetti-color);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--confetti-color), transparent 35%);
-  animation: celebration-confetti-fall var(--fall-duration) linear var(--fall-delay) infinite;
-}
-
-.piece-0 { --piece: 1; --confetti-color: #facc15; --fall-duration: 4.5s; --fall-delay: -1.3s; }
-.piece-1 { --piece: 2; --confetti-color: #f0abfc; --fall-duration: 5.7s; --fall-delay: -3.1s; width: 5px; height: 15px; }
-.piece-2 { --piece: 3; --confetti-color: #67e8f9; --fall-duration: 4.9s; --fall-delay: -2.2s; border-radius: 50%; }
-.piece-3 { --piece: 4; --confetti-color: #fb7185; --fall-duration: 6.1s; --fall-delay: -4.4s; }
-.piece-4 { --piece: 5; --confetti-color: #c4b5fd; --fall-duration: 5.2s; --fall-delay: -0.6s; width: 9px; height: 7px; }
-.piece-5 { --piece: 6; --confetti-color: #fde68a; --fall-duration: 4.7s; --fall-delay: -2.8s; }
-.piece-6 { --piece: 7; --confetti-color: #86efac; --fall-duration: 5.9s; --fall-delay: -3.7s; border-radius: 50%; }
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #f8fafc;
+  color: #1e293b;
 
 .issuance-celebration-content {
   position: relative;
@@ -2584,21 +2516,16 @@ body.dark .powered-by-logo img {
 }
 
 .celebration-kicker {
-  color: #fde68a;
+  color: #4338ca;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
-.celebration-kicker span {
-  margin-right: 5px;
-  font-size: 16px;
-}
-
 .issuance-celebration h3 {
   margin: 8px 0 2px;
-  color: #fff;
+  color: #0f172a;
   font-family: var(--font-display);
   font-size: clamp(24px, 4vw, 36px);
   line-height: 1.15;
@@ -2606,20 +2533,25 @@ body.dark .powered-by-logo img {
 
 .celebration-subtitle {
   margin: 0;
-  color: rgba(255, 255, 255, 0.76);
+  color: #475569;
 }
 
 .mini-certificate-preview {
   position: relative;
   margin: 24px auto 0;
-  padding: 19px clamp(16px, 4vw, 32px) 15px;
+  display: flex;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(4px, 1.1vw, 14px);
+  padding: clamp(14px, 4vw, 42px);
   overflow: hidden;
-  border: 2px solid rgba(196, 181, 253, 0.88);
-  border-radius: 15px;
-  background:
-    radial-gradient(circle at 100% 0%, rgba(221, 214, 254, 0.84), transparent 35%),
-    linear-gradient(135deg, #fff 0%, #faf8ff 64%, #f3efff 100%);
-  box-shadow: 0 14px 34px rgba(4, 0, 24, 0.24), inset 0 0 0 5px rgba(124, 58, 237, 0.045);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
   color: #1e1b4b;
   text-align: center;
 }
@@ -2630,86 +2562,90 @@ body.dark .powered-by-logo img {
   justify-content: center;
   gap: 9px;
   color: #312e81;
-  font-size: 13px;
+  font-size: clamp(9px, 1.3vw, 14px);
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
 .mini-certificate-brand small {
-  display: block;
-  margin-top: 1px;
-  color: #8b5cf6;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.17em;
+  display: none;
 }
 
 .mini-certificate-seal {
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: clamp(20px, 3vw, 38px);
+  height: clamp(20px, 3vw, 38px);
   place-items: center;
   border-radius: 50%;
-  background: linear-gradient(135deg, #7c3aed, #4338ca);
+  background: #312e81;
   color: #fff;
-  font-size: 19px;
+  font-size: clamp(12px, 2vw, 22px);
 }
 
 .mini-certificate-heading {
-  margin-top: 18px;
-  color: #6d28d9;
-  font-size: 10px;
+  margin-top: 0;
+  color: #475569;
+  font-size: clamp(8px, 1.35vw, 14px);
   font-weight: 800;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
 .mini-certificate-type {
-  margin-top: 5px;
+  margin-top: 0;
   font-family: var(--font-display);
-  font-size: clamp(19px, 4vw, 27px);
-  font-weight: 800;
+  font-size: clamp(12px, 2.5vw, 28px);
+  font-weight: 600;
   line-height: 1.2;
 }
 
 .mini-certificate-recipient {
-  margin-top: 12px;
-  color: #64748b;
-  font-size: 12px;
+  margin-top: 0;
+  color: #475569;
+  font-size: clamp(9px, 1.55vw, 18px);
 }
 
 .mini-certificate-recipient strong {
   display: block;
   margin-top: 3px;
-  color: #312e81;
+  color: #0f172a;
   font-family: var(--font-display);
-  font-size: clamp(17px, 3.5vw, 23px);
+  font-size: clamp(15px, 3.4vw, 38px);
+}
+
+.mini-certificate-type,
+.mini-certificate-recipient strong,
+.mini-certificate-issuer,
+.mini-certificate-footer > span:first-child {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .mini-certificate-issuer {
-  margin-top: 9px;
-  color: #64748b;
-  font-size: 11px;
+  margin-top: 0;
+  color: #334155;
+  font-size: clamp(9px, 1.5vw, 18px);
 }
 
 .mini-certificate-footer {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 14px;
-  padding-top: 9px;
-  border-top: 1px solid #ddd6fe;
-  color: #475569;
-  font-family: var(--font-mono);
-  font-size: 10px;
+  width: 100%;
+  margin-top: 0;
+  padding-top: clamp(5px, 1.1vw, 12px);
+  border-top: 1px solid #e2e8f0;
+  color: #334155;
+  font-family: var(--font-body);
+  font-size: clamp(8px, 1.3vw, 14px);
   text-align: left;
   overflow-wrap: anywhere;
 }
 
 .mini-certificate-status {
   flex-shrink: 0;
-  color: #059669;
+  color: #047857;
   font-family: var(--font-body);
   font-weight: 800;
 }
@@ -2791,39 +2727,6 @@ body.dark .powered-by-logo img {
   background: #fff;
 }
 
-.verification-pop-confetti {
-  position: absolute;
-  z-index: 2;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.verification-pop-confetti span {
-  position: absolute;
-  top: 20%;
-  left: 50%;
-  width: 8px;
-  height: 12px;
-  border-radius: 2px;
-  background: var(--confetti-color);
-  animation: verification-confetti-pop 900ms cubic-bezier(.15,.75,.25,1) var(--pop-delay) both;
-}
-
-.verification-pop-confetti .piece-0 { --confetti-color: #facc15; }
-.verification-pop-confetti .piece-1 { --confetti-color: #f0abfc; }
-.verification-pop-confetti .piece-2 { --confetti-color: #67e8f9; }
-.verification-pop-confetti .piece-3 { --confetti-color: #fb7185; }
-.verification-pop-confetti .piece-4 { --confetti-color: #c4b5fd; }
-.verification-pop-confetti .piece-5 { --confetti-color: #fde68a; }
-.verification-pop-confetti .piece-6 { --confetti-color: #86efac; }
-
-@keyframes verification-confetti-pop {
-  0% { transform: translate(-50%, 0) rotate(0deg) scale(.5); opacity: 0; }
-  12% { opacity: 1; }
-  100% { transform: translate(var(--x), var(--y)) rotate(var(--angle)) scale(1); opacity: 0; }
-}
-
 .celebration-actions {
   display: flex;
   justify-content: center;
@@ -2899,9 +2802,33 @@ body.dark .powered-by-logo img {
   color: var(--text-secondary);
 }
 
+.inline-field-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 8px;
+  color: #b91c1c;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.inline-field-error[hidden] {
+  display: none;
+}
+
+.inline-field-error .btn-ghost {
+  padding: 0;
+  color: #312e81;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
 .celebration-email-note {
   margin: 13px 0 0;
-  color: rgba(255, 255, 255, 0.82);
+  color: #475569;
   font-size: 12px;
   text-align: center;
 }
@@ -2911,7 +2838,7 @@ body.dark .powered-by-logo img {
   flex-wrap: wrap;
   gap: 7px 18px;
   margin-top: 16px;
-  color: rgba(255, 255, 255, 0.78);
+  color: #475569;
   font-size: 11px;
 }
 
@@ -2924,32 +2851,6 @@ body.dark .powered-by-logo img {
   display: grid;
   gap: 8px;
   margin-top: 14px;
-}
-
-@keyframes celebration-confetti-fall {
-  0% { transform: translate3d(0, -20px, 0) rotate(0deg); opacity: 0; }
-  10% { opacity: 1; }
-  100% { transform: translate3d(35px, 520px, 0) rotate(620deg); opacity: 0.12; }
-}
-
-@keyframes celebration-flare-pulse {
-  0%, 100% { transform: scale(0.92) rotate(0deg); opacity: 0.2; }
-  50% { transform: scale(1.08) rotate(9deg); opacity: 0.4; }
-}
-
-@keyframes celebration-glitter-drift {
-  to { background-position: 83px 74px, 153px 112px, 233px 161px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .celebration-flare,
-  .celebration-glitter,
-  .celebration-confetti-piece {
-    animation: none;
-  }
-  .verification-pop-confetti span {
-    animation: none;
-  }
 }
 
 @media (max-width: 540px) {

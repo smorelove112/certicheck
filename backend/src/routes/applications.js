@@ -5,9 +5,14 @@ const pool = require('../db/connection');
 const { verifyToken, verifyAdmin, verifyAdminToken, logAudit } = require('../middleware/auth');
 const { isValidEmail } = require('../utils/validation');
 const emailService = require('../services/emailService');
+const User = require('../models/User');
 const router = express.Router();
 const issuerApplyRouter = express.Router();
 const adminIssuerRouter = express.Router();
+const duplicateEmailResponse = {
+  success: false,
+  message: 'This email has already been used. Please log in or try another email.'
+};
 
 function getAdminActor(req) {
   const id = req.user.adminId || req.user.id;
@@ -52,6 +57,12 @@ async function submitApplication(req, res) {
 
     const applicantEmail = String(contactEmail).trim().toLowerCase();
     const generatedEmail = applicantEmail;
+    if (process.env.DEMO_MODE === 'true') {
+      const existingApplication = await Application.findApplicationByEmail(applicantEmail);
+      if (existingApplication) return res.status(409).json(duplicateEmailResponse);
+    } else if (await User.findByEmail(applicantEmail)) {
+      return res.status(409).json(duplicateEmailResponse);
+    }
 
     let userId = req.user?.id || null;
     if (!userId && process.env.DEMO_MODE === 'true') userId = 1;
@@ -96,6 +107,9 @@ async function submitApplication(req, res) {
       });
     });
   } catch (err) {
+    if (err.code === '23505' && err.constraint?.includes('email')) {
+      return res.status(409).json(duplicateEmailResponse);
+    }
     console.error('Application submit error:', err);
     res.status(500).json({ error: 'Failed to submit application' });
   }

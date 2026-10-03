@@ -105,6 +105,7 @@ test('signup still validates email syntax and prevents duplicate accounts', asyn
     lastName: 'Applicant'
   });
   assert.equal(duplicate.status, 409);
+  assert.equal((await duplicate.json()).message, 'This email has already been used. Please log in or try another email.');
 });
 
 test('signup email verification endpoints are not registered', async () => {
@@ -195,14 +196,15 @@ test('approved issuer can request a fresh activation code by email', async () =>
   assert.equal(unavailableResponse.status, 404);
 });
 
-test('forgot password explicitly reports when an email is not registered', async () => {
+test('forgot password returns the anti-enumeration success response for an unknown email', async () => {
   User.findByEmail = async () => null;
 
   const response = await post('/forgot-password', { email: 'unknown@example.com' });
   const data = await response.json();
 
-  assert.equal(response.status, 404);
-  assert.equal(data.error, 'No account is registered with this email address.');
+  assert.equal(response.status, 200);
+  assert.equal(data.success, true);
+  assert.equal(data.message, 'If an account exists, we sent a code.');
 });
 
 test('password reset sends an OTP and updates the password when the code is valid', async () => {
@@ -261,7 +263,7 @@ test('password reset reports email delivery failure and invalidates the unsent c
   const data = await response.json();
 
   assert.equal(response.status, 503, JSON.stringify(data));
-  assert.equal(data.error, 'Unable to send code right now.');
+  assert.equal(data.error, 'Unable to send reset code. Please try again later.');
   assert.equal(consumed, true);
 });
 
@@ -277,7 +279,27 @@ test('password reset returns email failure even if the undelivered OTP cannot be
   const data = await response.json();
 
   assert.equal(response.status, 503, JSON.stringify(data));
-  assert.equal(data.error, 'Unable to send code right now.');
+  assert.equal(data.error, 'Unable to send reset code. Please try again later.');
+});
+
+test('password reset reports Gmail send exceptions as a retryable delivery failure', async () => {
+  let consumed = false;
+  User.findByEmail = async () => ({ id: 42, email: 'ada@example.com' });
+  OTP.create = async email => ({ email, otp_code: '654321' });
+  OTP.consume = async () => {
+    consumed = true;
+    return true;
+  };
+  emailService.sendOTP = async () => {
+    throw new Error('Gmail API unavailable');
+  };
+
+  const response = await post('/forgot-password', { email: 'ada@example.com' });
+  const data = await response.json();
+
+  assert.equal(response.status, 503, JSON.stringify(data));
+  assert.equal(data.error, 'Unable to send reset code. Please try again later.');
+  assert.equal(consumed, true);
 });
 
 test('password reset identifies database-stage failures without exposing database details', async () => {
