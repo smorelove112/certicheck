@@ -62,7 +62,7 @@ test('failed application submissions show an error instead of a false success st
 test('static localhost previews use the deployed API instead of an unavailable localhost backend', () => {
   assert.match(scriptJs, /const localApiOrigin = \["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)\s*&& \["3000", "5000"\]\.includes\(window\.location\.port\)\s*\?\s*window\.location\.origin\s*:\s*null;/);
   assert.match(scriptJs, /"https:\/\/certicheck-backend-8hu3\.onrender\.com\/api"/);
-  assert.match(indexHtml, /script\.js\?v=20261002-optional-issuer-wallet/);
+  assert.match(indexHtml, /script\.js\?v=20261003-issuance-success-modal/);
 });
 
 test('forgot-password and OTP recovery interfaces are removed for both user roles', () => {
@@ -89,11 +89,26 @@ test('admin dashboard avoids automatic refreshes and refreshes after admin actio
 
 test('issuer wallet is optional and no-wallet issuance is identified as off-chain', () => {
   assert.match(indexHtml, /Wallet connection is optional/);
+  assert.match(indexHtml, /id="issuerOnChain" type="checkbox"/);
+  assert.match(scriptJs, /id="issuerDashboardOnChain" type="checkbox"/);
+  assert.match(indexHtml, /Leave the option below unchecked to issue off-chain without a wallet/);
   assert.match(scriptJs, /async function issueCertificateWithoutWallet\(payload, token\)/);
-  assert.match(scriptJs, /connectedWallet\s*\?\s*await issueCertificateWithPhantomWallet[\s\S]*?:\s*await issueCertificateWithoutWallet/);
+  assert.match(scriptJs, /const wantsOnChain = document\.getElementById\('issuerOnChain'\)\?\.checked === true/);
+  assert.match(scriptJs, /const wantsOnChain = document\.getElementById\('issuerDashboardOnChain'\)\?\.checked === true/);
+  assert.match(scriptJs, /if \(wantsOnChain && !connectedWallet\)/);
+  assert.match(scriptJs, /const data = wantsOnChain[\s\S]*?await issueCertificateWithPhantomWallet\(payload, token\)[\s\S]*?:\s*await issueCertificateWithoutWallet\(payload, token\)/);
   assert.match(scriptJs, /const connectedWallet = getActivePhantomWalletAddress\(\);/);
   assert.match(scriptJs, /This certificate is recorded in Certicheck but was not issued to Solana/);
   assert.match(scriptJs, /else if \(isOffChain\) addMetadata\('Blockchain', 'Off-chain record; not verified on Solana'\)/);
+  assert.doesNotMatch(scriptJs, /Connect the approved issuer wallet before issuing on-chain/);
+});
+
+test('successful certificate issuance opens a celebration dialog', () => {
+  assert.match(indexHtml, /<dialog id="issuanceSuccessDialog" class="issuance-success-dialog"/);
+  assert.match(indexHtml, /id="issuanceSuccessContent"/);
+  assert.match(scriptJs, /function showCertificateIssuanceCelebration\(resultContainer, certificate, warnings = \[\]\)/);
+  assert.match(scriptJs, /content\.innerHTML = markup;[\s\S]*?dialog\.showModal\(\)/);
+  assert.equal((scriptJs.match(/showCertificateIssuanceCelebration\((?:result|resultEl), successDetails, data\.warnings \|\| \[\]\)/g) || []).length, 2);
 });
 
 test('local admin preview uses the local backend instead of the deployed API', () => {
@@ -135,6 +150,6 @@ test('shared buttons have fast press feedback and accessible disabled styling', 
   assert.match(stylingCss, /button:active:not\(:disabled\)[\s\S]*?transform: scale\(0\.97\)/);
   assert.match(stylingCss, /button:disabled, \.btn:disabled\s*\{[\s\S]*?cursor: wait;[\s\S]*?opacity: 0\.7/);
   assert.match(stylingCss, /@media \(prefers-reduced-motion: reduce\)/);
-  assert.match(indexHtml, /styling\.css\?v=20261002-button-interaction/);
+  assert.match(indexHtml, /styling\.css\?v=20261003-issuance-success-modal/);
   assert.match(adminHtml, /styling\.css\?v=20261002-button-interaction/);
 });

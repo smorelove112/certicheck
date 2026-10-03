@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link rel="preconnect" href="https://certicheck-backend-8hu3.onrender.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="styling.css?v=20261002-button-interaction"/>
+  <link rel="stylesheet" href="styling.css?v=20261003-issuance-success-modal"/>
 </head>
 <body>
 
@@ -624,7 +624,11 @@
             <label class="field-label" for="issuerWallet">Issuer Wallet</label>
             <input class="field-input font-mono" id="issuerWallet" placeholder="Optional wallet address" type="text"/>
           </div>
-          <p class="small-text">Wallet connection is optional. Connect Phantom to issue on Solana devnet; without a wallet, the certificate is recorded off-chain and clearly identified as not blockchain-verified. Pinata is used for IPFS storage when configured.</p>
+          <p class="small-text">Wallet connection is optional. Leave the option below unchecked to issue off-chain without a wallet. Check it and connect Phantom to issue on Solana devnet. Off-chain certificates are clearly identified as not blockchain-verified. Pinata is used for IPFS storage when configured.</p>
+          <label class="issuer-chain-choice" for="issuerOnChain">
+            <input id="issuerOnChain" type="checkbox"/>
+            <span>Issue on Solana devnet (requires a connected Phantom wallet)</span>
+          </label>
           <div id="issuerError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
           <button class="btn-primary" id="issuerSubmitBtn" style="width:100%">Issue Certificate</button>
           <div id="issuerResult" style="margin-top:16px"></div>
@@ -632,6 +636,15 @@
       </div>
     </div>
   </div>
+  <dialog id="issuanceSuccessDialog" class="issuance-success-dialog" aria-labelledby="issuanceSuccessDialogTitle">
+    <div class="issuance-success-dialog-header">
+      <h2 id="issuanceSuccessDialogTitle">Certificate issued successfully</h2>
+      <form method="dialog">
+        <button class="verification-modal-x" type="submit" aria-label="Close issuance celebration">&times;</button>
+      </form>
+    </div>
+    <div id="issuanceSuccessContent"></div>
+  </dialog>
 
   <!-- ══════════════════════════════════════
        PAGE: VERIFY (Certificate Verification)
@@ -713,6 +726,6 @@
     </div>
   </footer>
 
-  <script src="script.js?v=20261002-optional-issuer-wallet"></script>
+  <script src="script.js?v=20261003-issuance-success-modal"></script>
 </body>
 </html>

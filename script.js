@@ -1306,6 +1306,27 @@ function wireMiniCertificateDownload(container, certificate) {
   });
 }
 
+function showCertificateIssuanceCelebration(resultContainer, certificate, warnings = []) {
+  const markup = getCertificateIssuanceSuccessMarkup(certificate, warnings);
+  const dialog = document.getElementById('issuanceSuccessDialog');
+  const content = document.getElementById('issuanceSuccessContent');
+  if (dialog && content && typeof dialog.showModal === 'function') {
+    content.innerHTML = markup;
+    wireMiniCertificateDownload(content, certificate);
+    if (resultContainer) {
+      const certificateId = certificate.certificateId || certificate.certificate_id;
+      resultContainer.innerHTML = `<div class="alert alert-success" role="status">Certificate ${escapeCertificateMarkup(certificateId)} issued successfully.</div>`;
+    }
+    if (!dialog.open) dialog.showModal();
+    return;
+  }
+
+  if (resultContainer) {
+    resultContainer.innerHTML = markup;
+    wireMiniCertificateDownload(resultContainer, certificate);
+  }
+}
+
 function collectCertificateFieldValues(certificateType) {
   const catalog = getCertificateFieldCatalog();
   const fields = catalog[certificateType] || [];
@@ -1542,6 +1563,10 @@ function renderRoleLandingHome() {
               <div style="padding:12px 14px;border:1px dashed var(--border);border-radius:12px;background:rgba(124,58,237,0.04);color:var(--text-secondary);font-size:13px;">
                 Certificate document is generated automatically with the Certicheck crest and the stored metadata fields for the selected document type.
               </div>
+              <label class="issuer-chain-choice" for="issuerDashboardOnChain">
+                <input id="issuerDashboardOnChain" type="checkbox"/>
+                <span>Issue on Solana devnet (requires a connected Phantom wallet). Leave unchecked to issue off-chain without a wallet.</span>
+              </label>
 
               <div class="form-actions" style="margin-top:0; padding-top:0; border-top:none; justify-content:flex-end;">
                 <button class="btn-primary" type="submit">Issue Certificate</button>
@@ -1680,8 +1705,14 @@ function renderRoleLandingHome() {
         const user = getStoredUser();
 
         const connectedWallet = getConnectedWalletAddress();
+        const wantsOnChain = document.getElementById('issuerDashboardOnChain')?.checked === true;
         if (!holderName || !holderEmail || !certificateType || !token || !user || !isVerifiedIssuer(user)) {
           notice.textContent = 'Issuer approval required. Enter the holder details and certificate type, and sign in as an approved issuer.';
+          notice.style.display = 'block';
+          return;
+        }
+        if (wantsOnChain && !connectedWallet) {
+          notice.textContent = 'Connect your Phantom wallet or turn off Solana issuance to issue off-chain.';
           notice.style.display = 'block';
           return;
         }
@@ -1743,13 +1774,14 @@ function renderRoleLandingHome() {
               holderWallet,
               certificateType,
               issuerName: institution,
-              issuerWallet: connectedWallet || '',
+              issuerWallet: wantsOnChain ? connectedWallet : '',
               metadata,
-              onChain: true
+              onChain: wantsOnChain
             };
 
-          if (!connectedWallet) throw new Error('Connect the approved issuer wallet before issuing on-chain.');
-          const data = await issueCertificateWithPhantomWallet(payload, token);
+          const data = wantsOnChain
+            ? await issueCertificateWithPhantomWallet(payload, token)
+            : await issueCertificateWithoutWallet(payload, token);
 
           const issued = data.certificate || {};
           const nextId = issued.certificate_id;
@@ -1769,13 +1801,13 @@ function renderRoleLandingHome() {
             certificateType,
             issuerName: institution,
             issuedAt,
+            onChain: Boolean(txSig),
             status: issued.status || 'valid',
           };
           setLastIssuerResult(successDetails, user);
 
           notice.style.display = 'none';
-          result.innerHTML = getCertificateIssuanceSuccessMarkup(successDetails, data.warnings || []);
-          wireMiniCertificateDownload(result, successDetails);
+          showCertificateIssuanceCelebration(result, successDetails, data.warnings || []);
           issuerDashboardForm.reset();
           try {
             await refreshIssuerDashboardCertificates(user);
@@ -2653,9 +2685,13 @@ async function initIssuerDashboard() {
         } : null
       };
 
+      const wantsOnChain = document.getElementById('issuerOnChain')?.checked === true;
       const connectedWallet = getActivePhantomWalletAddress();
-      payload.issuerWallet = connectedWallet || '';
-      const data = connectedWallet
+      if (wantsOnChain && !connectedWallet) {
+        throw new Error('Connect your Phantom wallet or turn off Solana issuance to issue off-chain.');
+      }
+      payload.issuerWallet = wantsOnChain ? connectedWallet : '';
+      const data = wantsOnChain
         ? await issueCertificateWithPhantomWallet(payload, getAuthToken())
         : await issueCertificateWithoutWallet(payload, getAuthToken());
 
@@ -2708,8 +2744,7 @@ async function initIssuerDashboard() {
         ipfsCid: certificate.ipfs_cid,
         ipfsSource
       };
-      resultEl.innerHTML = getCertificateIssuanceSuccessMarkup(successDetails, data.warnings || []);
-      wireMiniCertificateDownload(resultEl, successDetails);
+      showCertificateIssuanceCelebration(resultEl, successDetails, data.warnings || []);
 
       // Refresh issuer list view if visible
       try { renderIssuerCertificatesList(); } catch (e) {}
