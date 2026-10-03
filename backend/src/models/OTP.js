@@ -1,10 +1,9 @@
 const pool = require('../db/connection');
+const crypto = require('crypto');
 
 class OTP {
   static async create(email, purpose = 'reset_password') {
-    // Generate a 6-digit OTP
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    // Expiration: 15 minutes from now
+    const otpCode = String(crypto.randomInt(100000, 1000000));
     const expiresAt = new Date(Date.now() + 15 * 60000);
 
     // Invalidate previous active OTPs for this email and purpose

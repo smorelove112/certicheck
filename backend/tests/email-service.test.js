@@ -59,4 +59,11 @@ test('onboarding and credential emails include the required details without send
   assert.equal(delivered[2].attachments[0].cid, 'certificate-verification-qr');
   assert.ok(Buffer.isBuffer(delivered[2].attachments[0].content));
   assert.equal(delivered[2].html.includes('not-included'), false);
+
+  assert.equal(await emailService.sendOTP('grace@example.edu', '246810'), true);
+  assert.equal(delivered.length, 4);
+  assert.equal(delivered[3].to, 'grace@example.edu');
+  assert.match(delivered[3].subject, /verification code/i);
+  assert.match(delivered[3].text, /246810/);
+  assert.match(delivered[3].html, /246810/);
 });
