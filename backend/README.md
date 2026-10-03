@@ -57,7 +57,7 @@ CERTIFICATE_PROGRAM_ID=4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob
 
 On first admin authentication, the backend seeds three individual admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change each account's password before exposing a deployment publicly. Admin names, avatars, and password changes are personal to each account.
 
-Issuer applications send a receipt email. When approved, the applicant receives a 6-digit activation code that expires after 15 minutes and sets their own password through `/activate-account`. Certificate issuance sends the recipient a credential-rich email with a verification link and QR code. These messages require the `SMTP_*` settings in the backend environment. Supporting media remains optional.
+Issuer applications send a receipt email. When approved, the applicant receives a 6-digit activation code that expires after 15 minutes and sets their own password through `/activate-account`. Certificate issuance sends the recipient a credential-rich email with a verification link and QR code. Email delivery supports Gmail API over HTTPS (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `GMAIL_FROM`), Resend (`RESEND_API_KEY` and a verified `RESEND_FROM`), or SMTP (`SMTP_*`). Gmail API is suitable when there is no custom domain; its refresh token must have the `https://www.googleapis.com/auth/gmail.send` scope. Supporting media remains optional.
 
 Issuer application submissions are saved to the review queue and their audit-log writes run asynchronously.
 
