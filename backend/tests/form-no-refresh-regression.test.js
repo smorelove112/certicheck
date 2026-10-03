@@ -62,11 +62,21 @@ test('failed application submissions show an error instead of a false success st
 test('static localhost previews use the deployed API instead of an unavailable localhost backend', () => {
   assert.match(scriptJs, /const localApiOrigin = \["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)\s*&& \["3000", "5000"\]\.includes\(window\.location\.port\)\s*\?\s*window\.location\.origin\s*:\s*null;/);
   assert.match(scriptJs, /"https:\/\/certicheck-backend-8hu3\.onrender\.com\/api"/);
-  assert.match(indexHtml, /script\.js\?v=20261003-issuance-success-modal/);
+  assert.match(indexHtml, /script\.js\?v=20261003-password-reset/);
 });
 
-test('forgot-password and OTP recovery interfaces are removed for both user roles', () => {
-  assert.doesNotMatch(indexHtml + scriptJs + adminHtml + adminJs, /Forgot password|forgot-password|verify-reset-otp|verify-forgot-password|adminResetOtp/);
+test('user password-reset screens are wired to the email OTP endpoints', () => {
+  assert.match(indexHtml, /id="forgotPasswordForm"/);
+  assert.match(indexHtml, /id="page-verify-reset-otp"/);
+  assert.match(indexHtml, /id="resetPasswordForm"/);
+  assert.match(scriptJs, /function initForgotPasswordForm\(\)/);
+  assert.match(scriptJs, /function initResetPasswordForm\(\)/);
+  assert.match(scriptJs, /if \(page === "forgot-password"\) initForgotPasswordForm\(\)/);
+  assert.match(scriptJs, /if \(page === "verify-reset-otp"\) initResetPasswordForm\(\)/);
+  assert.match(scriptJs, /\/auth\/forgot-password/);
+  assert.match(scriptJs, /\/auth\/reset-password/);
+  assert.match(scriptJs, /if \(!\/\^\\d\{6\}\$\/\.test\(otpCode\)\)/);
+  assert.doesNotMatch(adminHtml + adminJs, /forgot-password|verify-reset-otp|adminResetOtp/i);
 });
 
 test('login guidance explains the default password and required password change', () => {

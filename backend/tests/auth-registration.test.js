@@ -4,11 +4,18 @@ const express = require('express');
 const fetch = require('cross-fetch');
 const pool = require('../src/db/connection');
 const User = require('../src/models/User');
+const OTP = require('../src/models/OTP');
+const emailService = require('../src/services/emailService');
 const authRoutes = require('../src/routes/auth');
 
 const originalQuery = pool.query;
 const originalFindByEmail = User.findByEmail;
 const originalCreate = User.create;
+const originalUpdatePassword = User.updatePassword;
+const originalOtpCreate = OTP.create;
+const originalOtpVerify = OTP.verify;
+const originalOtpConsume = OTP.consume;
+const originalSendOtp = emailService.sendOTP;
 let server;
 let createCalls = 0;
 
@@ -42,6 +49,11 @@ test.after(async () => {
   pool.query = originalQuery;
   User.findByEmail = originalFindByEmail;
   User.create = originalCreate;
+  User.updatePassword = originalUpdatePassword;
+  OTP.create = originalOtpCreate;
+  OTP.verify = originalOtpVerify;
+  OTP.consume = originalOtpConsume;
+  emailService.sendOTP = originalSendOtp;
 });
 
 async function post(path, body) {
@@ -85,9 +97,69 @@ test('signup still validates email syntax and prevents duplicate accounts', asyn
   assert.equal(duplicate.status, 409);
 });
 
-test('email OTP and forgotten-password endpoints are no longer registered', async () => {
-  for (const route of ['/send-otp', '/resend-otp', '/verify-otp', '/forgot-password', '/verify-forgot-password', '/reset-password']) {
+test('signup email verification endpoints are not registered', async () => {
+  for (const route of ['/send-otp', '/resend-otp', '/verify-otp', '/verify-forgot-password']) {
     const response = await post(route, {});
     assert.equal(response.status, 404, `${route} should not exist`);
   }
+});
+
+test('password reset sends an OTP and updates the password when the code is valid', async () => {
+  let sentTo;
+  let updatedPassword;
+  let consumedCode;
+  User.findByEmail = async () => ({ id: 42, email: 'ada@example.com' });
+  User.updatePassword = async (email, password) => {
+    updatedPassword = { email, password };
+  };
+  OTP.create = async (email, purpose) => ({
+    id: 1,
+    email,
+    otp_code: '123456',
+    purpose,
+    expires_at: new Date(Date.now() + 900000)
+  });
+  OTP.verify = async (email, code, purpose) =>
+    email === 'ada@example.com' && code === '123456' && purpose === 'reset_password';
+  OTP.consume = async (email, code, purpose) => {
+    consumedCode = { email, code, purpose };
+    return true;
+  };
+  emailService.sendOTP = async (email, code) => {
+    sentTo = { email, code };
+    return true;
+  };
+
+  const requestResponse = await post('/forgot-password', { email: ' Ada@Example.com ' });
+  const requestData = await requestResponse.json();
+  assert.equal(requestResponse.status, 200, JSON.stringify(requestData));
+  assert.deepEqual(sentTo, { email: 'ada@example.com', code: '123456' });
+
+  const resetResponse = await post('/reset-password', {
+    email: 'ADA@example.com',
+    otpCode: '123456',
+    newPassword: 'New-password-123'
+  });
+  const resetData = await resetResponse.json();
+  assert.equal(resetResponse.status, 200, JSON.stringify(resetData));
+  assert.deepEqual(updatedPassword, { email: 'ada@example.com', password: 'New-password-123' });
+  assert.deepEqual(consumedCode, { email: 'ada@example.com', code: '123456', purpose: 'reset_password' });
+});
+
+test('password reset reports email delivery failure and invalidates the unsent code', async () => {
+  let consumed = false;
+  User.findByEmail = async () => ({ id: 42, email: 'ada@example.com' });
+  OTP.create = async (email) => ({ email, otp_code: '654321' });
+  OTP.consume = async () => {
+    consumed = true;
+    return true;
+  };
+  emailService.sendOTP = async () => false;
+
+  const response = await post('/forgot-password', { email: 'ada@example.com' });
+  const data = await response.json();
+
+  assert.equal(response.status, 503, JSON.stringify(data));
+  assert.match(data.error, /Unable to send a reset code/);
+  assert.equal(consumed, true);
 });

@@ -713,6 +713,9 @@ router.post('/forgot-password', async (req, res) => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ error: 'Valid email is required' });
+    }
     
     // Check if user exists (Optional: can just send OTP anyway to avoid enumeration)
     const user = await User.findByEmail(normalizedEmail);
@@ -722,7 +725,11 @@ router.post('/forgot-password', async (req, res) => {
     }
 
     const otp = await OTP.create(normalizedEmail, 'reset_password');
-    await emailService.sendOTP(normalizedEmail, otp.otp_code);
+    const sent = await emailService.sendOTP(normalizedEmail, otp.otp_code);
+    if (!sent) {
+      await OTP.consume(normalizedEmail, otp.otp_code, 'reset_password');
+      return res.status(503).json({ error: 'Unable to send a reset code right now. Please try again later.' });
+    }
 
     res.json({ success: true, message: 'If an account with that email exists, we sent a reset code.' });
   } catch (err) {
@@ -736,6 +743,12 @@ router.post('/reset-password', async (req, res) => {
     const { email, otpCode, newPassword } = req.body;
     if (!email || !otpCode || !newPassword) {
       return res.status(400).json({ error: 'Email, code, and new password are required' });
+    }
+    if (typeof email !== 'string' || typeof otpCode !== 'string' || !/^\d{6}$/.test(otpCode)) {
+      return res.status(400).json({ error: 'Enter a valid email address and 6-digit reset code' });
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -767,4 +780,3 @@ router.post('/reset-password', async (req, res) => {
 });
 
 module.exports = router;
-

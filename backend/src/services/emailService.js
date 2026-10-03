@@ -21,8 +21,12 @@ class EmailService {
       console.log('📧 Email Service: SMTP configured');
     } else {
       this.transporter = null;
-      this.mode = 'console';
-      console.log('📧 Email Service: Running in Development/Console Mode');
+      this.mode = process.env.NODE_ENV === 'production' ? 'disabled' : 'console';
+      if (this.mode === 'console') {
+        console.log('📧 Email Service: Running in Development/Console Mode');
+      } else {
+        console.error('📧 Email Service: SMTP credentials are required in production');
+      }
     }
   }
 
@@ -38,6 +42,10 @@ class EmailService {
       console.log(`📝  TEXT: ${text || html}`);
       console.log('=========================================\n');
       return true;
+    }
+    if (this.mode !== 'smtp') {
+      console.error('📧 Email Send Error: SMTP is not configured');
+      return false;
     }
 
     try {

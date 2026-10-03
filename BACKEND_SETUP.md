@@ -53,7 +53,18 @@ DB_NAME=certicheck
 PORT=5000
 NODE_ENV=development
 JWT_SECRET=dev_secret_key_change_in_production
+
+# Optional email delivery (Gmail uses a Google App Password)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-full-address@gmail.com
+SMTP_PASS=your-16-character-google-app-password
+SMTP_FROM=your-full-address@gmail.com
 ```
+
+Use the same `SMTP_*` variable names in Render. Production email is disabled
+when SMTP credentials are missing; do not use your normal Gmail password.
 
 ### Step 3: Initialize Database
 
@@ -123,9 +134,13 @@ You should see:
 - If you're testing from a different origin, update CORS in `backend/src/server.js`
 
 ### OTP Not Sending
-- In **development mode**, OTPs are logged to console, not actually emailed
-- Check terminal output for OTP codes when testing signup
-- For production email, set EMAIL_SERVICE and EMAIL_PASSWORD in `.env`
+- In **development mode** without SMTP settings, reset codes are logged to the
+  backend console instead of emailed.
+- For production, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`,
+  `SMTP_USER`, and `SMTP_PASS`; `SMTP_FROM` is optional.
+- For Gmail, enable 2-Step Verification and create an App Password. If SMTP
+  delivery fails, check the backend logs and your hosting provider's outbound
+  SMTP/network restrictions.
 
 ---
 

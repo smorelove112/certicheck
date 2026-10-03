@@ -96,6 +96,7 @@ const API_BASE_URL = window.CERTICHECK_API_BASE_URL ||
   (localApiOrigin ? `${localApiOrigin}/api` : "https://certicheck-backend-8hu3.onrender.com/api");
 const CERTIFICATE_PROGRAM_ID = '4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob';
 let anchorLoading;
+let passwordResetEmail = '';
 
 async function withButtonLoading(button, asyncFn, loadingText = 'Please wait...') {
   if (!button || button.dataset.loading === '1') return;
@@ -1405,7 +1406,7 @@ function renderRoleLandingHome() {
     document.getElementById('roleHomeTitle').textContent = user.issuer_status === 'rejected' ? 'Application Rejected' : 'Application Pending';
     document.getElementById('roleHomeMeta').textContent = user.email || '';
     document.getElementById('roleHomeStats').innerHTML = '';
-    
+
     document.getElementById('roleHomeSystem').innerHTML = '';
     document.getElementById('roleHomeActions').innerHTML = `<div class="alert alert-info" style="margin-top:20px;">${user.issuer_status === 'rejected' ? 'Your application to become an issuer was rejected. Please contact support.' : 'Your application has been submitted and is currently pending review by an admin. You will be able to issue certificates once approved.'}</div>`;
     return;
@@ -1912,6 +1913,108 @@ function navigate(page) {
 
 function initAuthPageForms(page) {
   if (page === "change-password") initChangePasswordForm();
+  if (page === "forgot-password") initForgotPasswordForm();
+  if (page === "verify-reset-otp") initResetPasswordForm();
+}
+
+function initForgotPasswordForm() {
+  const form = document.getElementById('forgotPasswordForm');
+  const emailEl = document.getElementById('forgotEmail');
+  const errorEl = document.getElementById('forgotError');
+  const button = document.getElementById('forgotBtn');
+
+  if (!form || form.dataset.bound === 'true') return;
+  form.dataset.bound = 'true';
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    errorEl.style.display = 'none';
+    const email = emailEl.value.trim().toLowerCase();
+    if (!emailEl.checkValidity()) {
+      errorEl.textContent = 'Enter a valid email address';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    await withButtonLoading(button, async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Unable to send a reset code');
+
+        passwordResetEmail = email;
+        navigate('verify-reset-otp');
+      } catch (error) {
+        errorEl.textContent = error.message || 'Unable to send a reset code';
+        errorEl.style.display = 'block';
+      }
+    }, 'Sending code...');
+  });
+}
+
+function initResetPasswordForm() {
+  const form = document.getElementById('resetPasswordForm');
+  const codeEl = document.getElementById('resetOtpCode');
+  const passwordEl = document.getElementById('newPassword');
+  const confirmEl = document.getElementById('confirmNewPassword');
+  const errorEl = document.getElementById('resetError');
+  const button = document.getElementById('resetPasswordBtn');
+
+  if (!form || form.dataset.bound === 'true') return;
+  form.dataset.bound = 'true';
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    errorEl.style.display = 'none';
+    const otpCode = codeEl.value.trim();
+    const newPassword = passwordEl.value;
+
+    if (!passwordResetEmail) {
+      errorEl.textContent = 'Request a reset code first.';
+      errorEl.style.display = 'block';
+      navigate('forgot-password');
+      return;
+    }
+    if (!/^\d{6}$/.test(otpCode)) {
+      errorEl.textContent = 'Enter the 6-digit code from your email.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    if (newPassword.length < 6) {
+      errorEl.textContent = 'Password must be at least 6 characters.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    if (newPassword !== confirmEl.value) {
+      errorEl.textContent = 'Passwords do not match.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    await withButtonLoading(button, async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: passwordResetEmail, otpCode, newPassword })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Unable to reset password');
+
+        passwordResetEmail = '';
+        form.reset();
+        navigate('login');
+        showLoginNotice('Password reset', data.message || 'Your password has been reset successfully. You can now sign in.');
+      } catch (error) {
+        errorEl.textContent = error.message || 'Unable to reset password';
+        errorEl.style.display = 'block';
+      }
+    }, 'Resetting password...');
+  });
 }
 
 function VerificationResultModal({ response, certificateId = '' }) {
@@ -3614,7 +3717,7 @@ setInterval(() => {
           verificationStatus: entry.status || entry.verification_status || 'valid',
           issuedAt: entry.issued_at || entry.created_at
         }));
-        
+
         // Only re-render if count changes or status changes (simple check)
         const currentArr = getIssuerIssuedCertificates();
         if (arr.length !== currentArr.length || JSON.stringify(arr) !== JSON.stringify(currentArr)) {

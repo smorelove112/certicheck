@@ -442,17 +442,17 @@
         <p class="page-desc">Enter your email to receive a password reset code.</p>
       </div>
 
-      <div class="form-card">
+      <form class="form-card" id="forgotPasswordForm">
         <div class="field">
           <label class="field-label" for="forgotEmail">Email</label>
-          <input class="field-input" id="forgotEmail" name="email" type="email" autocomplete="email" placeholder="your@email.com"/>
+          <input class="field-input" id="forgotEmail" name="email" type="email" autocomplete="email" placeholder="your@email.com" required/>
         </div>
-        <div id="forgotError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
-        <button class="btn-primary" id="forgotBtn" style="width:100%">Send Reset Code</button>
+        <div id="forgotError" role="alert" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
+        <button class="btn-primary" id="forgotBtn" type="submit" style="width:100%">Send Reset Code</button>
         <p style="text-align:center;color:var(--text-secondary);margin-top:16px;font-size:13px">
-          <button class="btn-ghost" data-page="login" style="background:none;border:none;padding:0;text-decoration:underline;cursor:pointer">Back to Login</button>
+          <button class="btn-ghost" type="button" data-page="login" style="background:none;border:none;padding:0;text-decoration:underline;cursor:pointer">Back to Login</button>
         </p>
-      </div>
+      </form>
     </div>
   </div>
 
@@ -466,22 +466,22 @@
         <p class="page-desc">Enter the 6-digit code sent to your email.</p>
       </div>
 
-      <div class="form-card">
+      <form class="form-card" id="resetPasswordForm">
         <div class="field">
           <label class="field-label" for="resetOtpCode">Verification Code</label>
-          <input class="field-input" id="resetOtpCode" type="text" placeholder="000000" maxlength="6" inputmode="numeric" style="text-align:center;font-size:24px;letter-spacing:4px;font-weight:600;"/>
+          <input class="field-input" id="resetOtpCode" type="text" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code" required style="text-align:center;font-size:24px;letter-spacing:4px;font-weight:600;"/>
         </div>
         <div class="field">
           <label class="field-label" for="newPassword">New Password</label>
-          <input class="field-input" id="newPassword" name="new-password" type="password" autocomplete="new-password" placeholder="••••••••"/>
+          <input class="field-input" id="newPassword" name="new-password" type="password" autocomplete="new-password" minlength="6" placeholder="••••••••" required/>
         </div>
         <div class="field">
           <label class="field-label" for="confirmNewPassword">Confirm Password</label>
-          <input class="field-input" id="confirmNewPassword" name="new-password" type="password" autocomplete="new-password" placeholder="••••••••"/>
+          <input class="field-input" id="confirmNewPassword" name="new-password" type="password" autocomplete="new-password" minlength="6" placeholder="••••••••" required/>
         </div>
-        <div id="resetError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
-        <button class="btn-primary" id="resetPasswordBtn" style="width:100%">Reset Password</button>
-      </div>
+        <div id="resetError" role="alert" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
+        <button class="btn-primary" id="resetPasswordBtn" type="submit" style="width:100%">Reset Password</button>
+      </form>
     </div>
   </div>
 
@@ -785,6 +785,6 @@
     </div>
   </footer>
 
-  <script src="script.js?v=20261003-issuance-success-modal"></script>
+  <script src="script.js?v=20261003-password-reset"></script>
 </body>
 </html>
