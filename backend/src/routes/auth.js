@@ -1,5 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const pool = require('../db/connection');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
@@ -11,6 +13,13 @@ const { logAudit, verifyToken, verifyAdmin, verifyAdminToken } = require('../mid
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
+const issuerActivationRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => res.status(429).json({ error: 'Too many activation attempts. Please try again later.' })
+});
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -211,7 +220,7 @@ router.post('/register', async (req, res) => {
     }
 
     const newUser = await User.create(email, 'password', firstName, lastName, userType);
-    
+
     await logAudit(newUser.id, 'REGISTER', 'user', newUser.id, 'success');
 
     res.status(201).json({
@@ -278,7 +287,7 @@ router.post('/login', async (req, res) => {
     await ensureSeededAccounts();
 
     const user = await User.verifyPassword(email, password);
-    
+
     if (!user) {
       const registeredUser = await User.findByEmail(email);
       if (!registeredUser) {
@@ -301,6 +310,13 @@ router.post('/login', async (req, res) => {
     }
 
     if (!user.is_active) {
+      if (user.activation_code_hash && new Date(user.activation_expires_at).getTime() > Date.now()) {
+        await logAudit(user.id, 'LOGIN', 'user', user.id, 'failed', 'Issuer activation required');
+        return res.status(403).json({
+          code: 'ISSUER_ACTIVATION_REQUIRED',
+          error: 'Your issuer account is approved. Use the activation code sent by email to create your password.'
+        });
+      }
       const application = await Application.findApplicationByEmail(email);
       const applicationNotice = getLoginApplicationNotice(application);
       if (applicationNotice) {
@@ -688,9 +704,9 @@ router.put('/profile', verifyToken, async (req, res) => {
   try {
     const { firstName, lastName } = req.body;
     const user = await User.updateProfile(req.user.id, firstName, lastName);
-    
+
     await logAudit(req.user.id, 'PROFILE_UPDATE', 'user', req.user.id, 'success');
-    
+
     res.json({ success: true, user });
   } catch (err) {
     console.error('Profile update error:', err);
@@ -705,6 +721,62 @@ const OTP = require('../models/OTP');
 const emailService = require('../services/emailService');
 const bcrypt = require('bcryptjs');
 
+router.post('/activate-issuer', issuerActivationRateLimiter, async (req, res) => {
+  try {
+    const { email, activationCode, password, confirmPassword } = req.body;
+    if (![email, activationCode, password, confirmPassword].every(value => typeof value === 'string' && value.length > 0)) {
+      return res.status(400).json({ error: 'Email, activation code, password, and confirmation are required' });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    if (!isValidEmail(normalizedEmail) || !/^\d{6}$/.test(activationCode)) {
+      return res.status(400).json({ error: 'Enter a valid email address and 6-digit activation code' });
+    }
+    if (password !== confirmPassword) {
+      return res.status(400).json({ error: 'Passwords do not match' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const codeHash = crypto
+      .createHmac('sha256', process.env.JWT_SECRET || 'dev_secret_key')
+      .update(activationCode)
+      .digest('hex');
+    const user = await User.activateIssuer(normalizedEmail, codeHash, password);
+    if (!user) {
+      return res.status(400).json({ error: 'Activation code is invalid, expired, or the account is not approved' });
+    }
+
+    const identity = buildAuthIdentity(user);
+    const token = jwt.sign(
+      { ...identity, must_change_password: false },
+      JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRE || '7d' }
+    );
+    setAuthCookie(res, token);
+
+    return res.json({
+      success: true,
+      message: 'Issuer account activated. You can now access the issuer portal.',
+      token,
+      user: {
+        ...identity,
+        is_active: true,
+        is_verified: true,
+        is_approved: true,
+        isApproved: true,
+        must_change_password: false,
+        mustChangePassword: false,
+        issuer_status: 'approved'
+      }
+    });
+  } catch (err) {
+    console.error('Issuer activation error:', err);
+    return res.status(500).json({ error: 'Failed to activate issuer account' });
+  }
+});
+
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
@@ -716,7 +788,7 @@ router.post('/forgot-password', async (req, res) => {
     if (!isValidEmail(normalizedEmail)) {
       return res.status(400).json({ error: 'Valid email is required' });
     }
-    
+
     // Check if user exists (Optional: can just send OTP anyway to avoid enumeration)
     const user = await User.findByEmail(normalizedEmail);
     if (!user) {
@@ -765,7 +837,7 @@ router.post('/reset-password', async (req, res) => {
        return res.status(404).json({ error: 'User not found' });
     }
 
-    // We can use User.updatePassword if it handles hashing, let's see. 
+    // We can use User.updatePassword if it handles hashing, let's see.
     // From auth.js, we see: await User.updatePassword(user.email, newPassword, false);
     await User.updatePassword(normalizedEmail, newPassword, false);
 

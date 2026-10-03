@@ -124,7 +124,7 @@ class Application {
     return result.rows;
   }
 
-  static async approve(appId, reviewerId, adminName = null, adminPicture = null) {
+  static async approve(appId, reviewerId, adminName = null, adminPicture = null, activationCodeHash = null, activationExpiresAt = null) {
     if (process.env.DEMO_MODE === 'true') {
       const app = demoAppStore.updateStatus(appId, 'approved', reviewerId, adminName, adminPicture);
       return app ? {
@@ -138,7 +138,6 @@ class Application {
       } : null;
     }
 
-    const defaultPasswordHash = await User.getDefaultIssuerPasswordHash();
     const result = await pool.query(
       `WITH approved_application AS (
          UPDATE pending_applications
@@ -160,23 +159,22 @@ class Application {
        ),
        activated_user AS (
          UPDATE users
-         SET password_hash = CASE
-               WHEN users.is_active = FALSE AND COALESCE(users.user_type, 'user') != 'admin'
-               THEN $5 ELSE users.password_hash
-             END,
-             is_active = TRUE,
-             must_change_password = CASE
-               WHEN users.is_active = FALSE AND COALESCE(users.user_type, 'user') != 'admin'
-               THEN TRUE ELSE users.must_change_password
-             END,
+         SET is_active = FALSE,
+             is_verified = FALSE,
+             must_change_password = TRUE,
+             activation_code_hash = $5,
+             activation_expires_at = $6,
              user_type = 'issuer',
              updated_at = NOW()
          FROM updated_profile
          WHERE users.id = updated_profile.user_id
-         RETURNING users.id
+         RETURNING users.id, users.email AS activation_email
        )
-       SELECT * FROM approved_application`,
-      [reviewerId, appId, adminName, adminPicture, defaultPasswordHash]
+       SELECT approved_application.*, activated_user.activation_email
+       FROM approved_application
+       LEFT JOIN updated_profile ON TRUE
+       LEFT JOIN activated_user ON activated_user.id = updated_profile.user_id`,
+      [reviewerId, appId, adminName, adminPicture, activationCodeHash, activationExpiresAt]
     );
 
     return result.rows[0];

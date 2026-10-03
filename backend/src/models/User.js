@@ -128,6 +128,32 @@ class User {
     );
     return result.rows[0];
   }
+
+  static async activateIssuer(email, activationCodeHash, newPassword) {
+    const normalizedEmail = this.normalizeEmail(email);
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    const result = await pool.query(
+      `UPDATE users
+       SET password_hash = $1,
+           is_active = TRUE,
+           is_verified = TRUE,
+           must_change_password = FALSE,
+           activation_code_hash = NULL,
+           activation_expires_at = NULL,
+           updated_at = NOW()
+       WHERE email = $2
+         AND user_type = 'issuer'
+         AND activation_code_hash = $3
+         AND activation_expires_at > NOW()
+         AND EXISTS (
+           SELECT 1 FROM issuer_profiles
+           WHERE issuer_profiles.user_id = users.id AND issuer_profiles.status = 'approved'
+         )
+       RETURNING id, email, first_name, last_name, user_type, is_active, is_verified`,
+      [passwordHash, normalizedEmail, activationCodeHash]
+    );
+    return result.rows[0] || null;
+  }
 }
 
 module.exports = User;

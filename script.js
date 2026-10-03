@@ -1201,6 +1201,61 @@ function escapeCertificateMarkup(value) {
   })[character]);
 }
 
+function getCredentialDetailsMarkup(metadata) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return '';
+  const entries = Object.entries(metadata).filter(([key, value]) =>
+    key !== 'attachment' && value !== null && value !== undefined
+  );
+  if (!entries.length) return '';
+  return `<dl class="mini-certificate-details">${entries.map(([key, value]) => {
+    const displayValue = typeof value === 'string' ? value : JSON.stringify(value);
+    return `<div><dt>${escapeCertificateMarkup(key)}</dt><dd>${escapeCertificateMarkup(displayValue)}</dd></div>`;
+  }).join('')}</dl>`;
+}
+
+function getMiniCertificateCardMarkup(certificate, { statusLabel = 'VALID', verification = false } = {}) {
+  const holderName = certificate.holder_name || certificate.holderName || certificate.holder || 'Certificate holder';
+  const certificateId = certificate.certificate_id || certificate.certificateId || '';
+  const certificateType = certificate.certificate_type || certificate.certificateType || certificate.cert_type || 'Certificate';
+  const issuerName = certificate.issuer_name || certificate.issuerName || 'CertiCheck issuer';
+  const issuedAt = certificate.issued_at || certificate.issuedAt || certificate.created_at;
+  const metadata = certificate.metadata && typeof certificate.metadata === 'object' ? certificate.metadata : {};
+  const cid = certificate.ipfs_cid || certificate.ipfsCid || '';
+  const ipfsSource = certificate.ipfs_source || certificate.ipfsSource || '';
+  const transaction = certificate.blockchain_transaction_id || certificate.blockchainTransactionId || '';
+  const cluster = certificate.cluster || 'devnet';
+  const qr = certificateId
+    ? `<img class="mini-certificate-qr" src="${API_BASE_URL}/certificates/qr/${encodeURIComponent(certificateId)}" alt="QR code to verify certificate ${escapeCertificateMarkup(certificateId)}" loading="lazy"/>`
+    : '';
+  const cidMarkup = cid
+    ? `<div><dt>${ipfsSource === 'pinata' ? 'IPFS CID' : 'Record ID'}</dt><dd>${ipfsSource === 'pinata'
+      ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(cid)}" target="_blank" rel="noopener noreferrer">${escapeCertificateMarkup(cid)}</a>`
+      : escapeCertificateMarkup(cid)}</dd></div>`
+    : '';
+  const transactionMarkup = transaction
+    ? `<div><dt>Solana transaction</dt><dd><a href="https://explorer.solana.com/tx/${encodeURIComponent(transaction)}?cluster=${encodeURIComponent(cluster)}" target="_blank" rel="noopener noreferrer">${escapeCertificateMarkup(transaction)}</a></dd></div>`
+    : `<div><dt>Network</dt><dd>${certificate.on_chain === true || certificate.onChain === true ? 'Solana Devnet' : 'Off-chain record'}</dd></div>`;
+  const statusText = String(statusLabel).toUpperCase();
+  const credentialDetails = getCredentialDetailsMarkup(metadata);
+
+  return `<article class="mini-certificate-preview${verification ? ' verification-mini-certificate' : ''}${statusText === 'REVOKED' ? ' is-revoked' : ''}" aria-label="Certificate for ${escapeCertificateMarkup(holderName)}">
+    ${statusText === 'VALID' && verification ? `<div class="verification-pop-confetti" aria-hidden="true">${Array.from({ length: 24 }, (_, index) => `<span class="piece-${index % 7}" style="--x:${(index % 8 - 3.5) * 28}px;--y:${-80 - Math.floor(index / 8) * 34}px;--angle:${index * 41}deg;--pop-delay:${Math.floor(index / 6) * 20}ms"></span>`).join('')}</div>` : ''}
+    <div class="mini-certificate-brand"><span class="mini-certificate-seal" aria-hidden="true">${statusText === 'REVOKED' ? '!' : '✓'}</span><span>Certicheck <small>Digital credential</small></span><span class="mini-certificate-status">${statusText === 'VALID' && verification ? 'VERIFIED' : statusText}</span></div>
+    <div class="mini-certificate-heading">CERTIFICATE OF ACHIEVEMENT</div>
+    <div class="mini-certificate-type">${escapeCertificateMarkup(certificateType)}</div>
+    <div class="mini-certificate-recipient">Presented to <strong>${escapeCertificateMarkup(holderName)}</strong></div>
+    <div class="mini-certificate-issuer">Issued by ${escapeCertificateMarkup(issuerName)}${issuedAt ? ` · ${escapeCertificateMarkup(new Date(issuedAt).toLocaleDateString())}` : ''}</div>
+    <dl class="mini-certificate-details">
+      <div><dt>Certificate ID</dt><dd>${escapeCertificateMarkup(certificateId)}</dd></div>
+      <div><dt>Status</dt><dd>${statusText}${certificate.revoked_at || certificate.revokedAt ? ` · revoked ${escapeCertificateMarkup(new Date(certificate.revoked_at || certificate.revokedAt).toLocaleString())}` : ''}</dd></div>
+      ${cidMarkup}
+      ${transactionMarkup}
+    </dl>
+    ${credentialDetails}
+    ${qr ? `<div class="mini-certificate-qr-wrap">${qr}<span>Scan to verify</span></div>` : ''}
+  </article>`;
+}
+
 function getMiniCertificateSvg(certificate) {
   const escapeXml = (value) => escapeCertificateMarkup(value);
   const issuedAt = certificate.issuedAt || certificate.issued_at || certificate.created_at;
@@ -1278,14 +1333,7 @@ function getCertificateIssuanceSuccessMarkup(certificate, warnings = []) {
       <div class="celebration-kicker"><span aria-hidden="true">✦</span> ${onChain ? 'On-chain issuance complete' : 'Certificate issuance complete · off-chain'}</div>
       <h3 id="issuanceCelebrationTitle">Congratulations, ${holderName}!</h3>
       <p class="celebration-subtitle">Your ${certificateType} certificate is now issued.</p>
-      <div class="mini-certificate-preview" aria-label="Mini certificate preview">
-        <div class="mini-certificate-brand"><span class="mini-certificate-seal" aria-hidden="true">✓</span><span>Certicheck <small>${onChain ? 'Solana credential' : 'Digital credential'}</small></span></div>
-        <div class="mini-certificate-heading">Certificate of Achievement</div>
-        <div class="mini-certificate-type">${certificateType}</div>
-        <div class="mini-certificate-recipient">Proudly presented to <strong>${holderName}</strong></div>
-        <div class="mini-certificate-issuer">Issued by ${issuerName}${issuedAt ? ` · ${escapeCertificateMarkup(new Date(issuedAt).toLocaleDateString())}` : ''}</div>
-        <div class="mini-certificate-footer"><span>ID: ${certificateId}</span><span class="mini-certificate-status">${status}</span></div>
-      </div>
+      ${getMiniCertificateCardMarkup(certificate, { statusLabel: status.toUpperCase() })}
       <div class="celebration-actions">
         <button class="btn-primary" type="button" data-download-mini-certificate>Download mini-certificate</button>
       </div>
@@ -1915,6 +1963,63 @@ function initAuthPageForms(page) {
   if (page === "change-password") initChangePasswordForm();
   if (page === "forgot-password") initForgotPasswordForm();
   if (page === "verify-reset-otp") initResetPasswordForm();
+  if (page === "activate-account") initIssuerActivationForm();
+}
+
+function initIssuerActivationForm() {
+  const form = document.getElementById('issuerActivationForm');
+  const emailEl = document.getElementById('activationEmail');
+  const codeEl = document.getElementById('activationCode');
+  const passwordEl = document.getElementById('activationPassword');
+  const confirmEl = document.getElementById('activationConfirmPassword');
+  const errorEl = document.getElementById('activationError');
+  const button = document.getElementById('issuerActivationBtn');
+
+  if (!form || form.dataset.bound === 'true') return;
+  form.dataset.bound = 'true';
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    errorEl.style.display = 'none';
+    const email = emailEl.value.trim().toLowerCase();
+    const activationCode = codeEl.value.trim();
+    const password = passwordEl.value;
+    const confirmPassword = confirmEl.value;
+    if (password !== confirmPassword) {
+      errorEl.textContent = 'Passwords do not match.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    if (password.length < 8) {
+      errorEl.textContent = 'Password must be at least 8 characters.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    await withButtonLoading(button, async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/activate-issuer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, activationCode, password, confirmPassword })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Unable to activate issuer account');
+        if (data.token && data.user) {
+          currentUser = data.user;
+          saveAuthSession(data.token, data.user);
+          updateAuthUi();
+          navigate('home');
+        } else {
+          navigate('login');
+          showLoginNotice('Account activated', data.message || 'You can now sign in.');
+        }
+      } catch (error) {
+        errorEl.textContent = error.message || 'Unable to activate issuer account';
+        errorEl.style.display = 'block';
+      }
+    }, 'Activating account...');
+  });
 }
 
 function initForgotPasswordForm() {
@@ -2073,6 +2178,20 @@ function VerificationResultModal({ response, certificateId = '' }) {
   dialog.querySelector('#verificationResultMessage').textContent = state === 'revoked' && revokedAt
     ? `${message} Revoked on ${new Date(revokedAt).toLocaleString()}.`
     : message;
+
+  const miniCertificate = dialog.querySelector('#verificationMiniCertificate');
+  miniCertificate.innerHTML = state === 'valid' || state === 'revoked'
+    ? getMiniCertificateCardMarkup({
+      ...certificate,
+      certificate_id: certificate.certificate_id || certificate.certificateId || certificateId,
+      on_chain: response?.onChain === true,
+      status: state,
+      verification_status: state
+    }, {
+      statusLabel: state === 'valid' ? 'VALID' : 'REVOKED',
+      verification: true
+    })
+    : '';
 
   const metadataList = dialog.querySelector('#verificationResultMetadata');
   metadataList.replaceChildren();
@@ -2357,6 +2476,19 @@ document.addEventListener("DOMContentLoaded", () => {
   currentUser = getStoredUser();
   updateAuthUi();
   renderRoleLandingHome();
+  const requestedPage = new URLSearchParams(window.location.search).get('page');
+  if (window.location.pathname.replace(/\/+$/, '') === '/activate-account' || requestedPage === 'activate-account') {
+    navigate('activate-account');
+  }
+  const certificateId = new URLSearchParams(window.location.search).get('certificateId');
+  if (certificateId) {
+    navigate('verify');
+    const certificateInput = document.getElementById('certIdInput');
+    if (certificateInput) {
+      certificateInput.value = certificateId;
+      verifyCertificate();
+    }
+  }
   if (getAuthToken()) {
     refreshIssuerAuthorization().catch((error) => {
       verifiedIssuerUserId = null;
@@ -3201,7 +3333,8 @@ function initLoginForm() {
           APPLICATION_PENDING: 'Application pending',
           APPLICATION_REJECTED: 'Application rejected',
           APPLICATION_APPROVED: 'Application approved',
-          USER_PENDING_APPROVAL: 'Account pending approval'
+          USER_PENDING_APPROVAL: 'Account pending approval',
+          ISSUER_ACTIVATION_REQUIRED: 'Issuer account approved'
         };
         if (noticeTitles[errCode] && !showLoginNotice(noticeTitles[errCode], errMsg)) {
           errorEl.textContent = errMsg;
@@ -3573,7 +3706,7 @@ async function submitApplyForm() {
   if (backButton) backButton.disabled = true;
 
   try {
-    const response = await fetch(`${API_BASE_URL}/applications/submit`, {
+    const response = await fetch(`${API_BASE_URL}/issuers/apply`, {
       method: 'POST',
       headers,
       body: JSON.stringify(applicationData)
@@ -3586,7 +3719,8 @@ async function submitApplyForm() {
     clearPendingApplicationDraft();
     const hidden = document.getElementById('contactEmail');
     if (hidden) hidden.value = email;
-    if (currentUser) { currentUser.issuer_status = 'pending'; setStoredUser(currentUser); if (currentPage === 'home') renderRoleLandingHome(); } showSuccessMessage(email);
+    if (currentUser) { currentUser.issuer_status = 'pending'; setStoredUser(currentUser); if (currentPage === 'home') renderRoleLandingHome(); }
+    showSuccessMessage(email, data.notification?.emailSent !== false);
   } catch (error) {
     console.error('Error submitting application:', error);
     saveApplicationLocally(applicationData);
@@ -3632,7 +3766,7 @@ function clearPendingApplicationDraft() {
   try { localStorage.removeItem('certicheck_pending_application_draft'); } catch (e) {}
 }
 
-function showSuccessMessage(officialEmail) {
+function showSuccessMessage(officialEmail, confirmationEmailSent = true) {
   navigate("apply");
   document.getElementById(`form-step-${applyStep}`)?.classList.remove("active");
   document.getElementById("form-step-success")?.classList.add("active");
@@ -3640,7 +3774,7 @@ function showSuccessMessage(officialEmail) {
 
   const msg = document.getElementById("successMsg");
   if (msg) {
-    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${escapeCertificateMarkup(officialEmail)}</div>`;
+    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:10px;">${confirmationEmailSent ? 'We sent a confirmation email with next steps.' : 'Your application was saved, but its confirmation email could not be delivered. Our team will still review it.'}</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${escapeCertificateMarkup(officialEmail)}</div>`;
   }
 
   // Mark all steps done

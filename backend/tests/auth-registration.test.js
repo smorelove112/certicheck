@@ -12,6 +12,7 @@ const originalQuery = pool.query;
 const originalFindByEmail = User.findByEmail;
 const originalCreate = User.create;
 const originalUpdatePassword = User.updatePassword;
+const originalActivateIssuer = User.activateIssuer;
 const originalOtpCreate = OTP.create;
 const originalOtpVerify = OTP.verify;
 const originalOtpConsume = OTP.consume;
@@ -50,6 +51,7 @@ test.after(async () => {
   User.findByEmail = originalFindByEmail;
   User.create = originalCreate;
   User.updatePassword = originalUpdatePassword;
+  User.activateIssuer = originalActivateIssuer;
   OTP.create = originalOtpCreate;
   OTP.verify = originalOtpVerify;
   OTP.consume = originalOtpConsume;
@@ -162,4 +164,44 @@ test('password reset reports email delivery failure and invalidates the unsent c
   assert.equal(response.status, 503, JSON.stringify(data));
   assert.match(data.error, /Unable to send a reset code/);
   assert.equal(consumed, true);
+});
+
+test('issuer activation requires matching passwords and activates with the emailed code', async () => {
+  let activationRequest;
+  User.activateIssuer = async (email, activationCodeHash, password) => {
+    activationRequest = { email, activationCodeHash, password };
+    return {
+      id: 22,
+      email,
+      first_name: 'Ada',
+      last_name: 'Lovelace',
+      user_type: 'issuer',
+      is_active: true,
+      is_verified: true
+    };
+  };
+
+  const mismatch = await post('/activate-issuer', {
+    email: 'ada@example.com',
+    activationCode: '123456',
+    password: 'Strong-pass-123',
+    confirmPassword: 'Different-pass-123'
+  });
+  assert.equal(mismatch.status, 400);
+  assert.equal(activationRequest, undefined);
+
+  const response = await post('/activate-issuer', {
+    email: 'Ada@example.com',
+    activationCode: '123456',
+    password: 'Strong-pass-123',
+    confirmPassword: 'Strong-pass-123'
+  });
+  const data = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(data));
+  assert.match(activationRequest.activationCodeHash, /^[a-f0-9]{64}$/);
+  assert.equal(activationRequest.email, 'ada@example.com');
+  assert.equal(activationRequest.password, 'Strong-pass-123');
+  assert.equal(data.user.is_verified, true);
+  assert.equal(data.user.issuer_status, 'approved');
+  assert.ok(data.token);
 });

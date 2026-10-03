@@ -57,7 +57,7 @@ CERTIFICATE_PROGRAM_ID=4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob
 
 On first admin authentication, the backend seeds three individual admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change each account's password before exposing a deployment publicly. Admin names, avatars, and password changes are personal to each account.
 
-Signup and login accept syntactically valid email addresses from any domain. Email addresses are used for account sign-in and issuer/applicant contact records; the application does not send mail or verify mailbox ownership. Newly approved issuer accounts use the default password `password` and are required to change it at first sign-in. Password recovery is not available; administrators can assist with account access.
+Issuer applications send a receipt email. When approved, the applicant receives a 6-digit activation code that expires after 15 minutes and sets their own password through `/activate-account`. Certificate issuance sends the recipient a credential-rich email with a verification link and QR code. These messages require the `SMTP_*` settings in the backend environment. Supporting media remains optional.
 
 Issuer application submissions are saved to the review queue and their audit-log writes run asynchronously.
 
@@ -117,7 +117,7 @@ This runs the backend unit and integration test suite, including multi-admin pro
 - `GET /api/auth/admin/users/pending` - List user accounts awaiting approval
 - `PUT /api/auth/admin/users/:userId/approve` - Approve a pending account; the account is activated with a hashed `password` initial password and must change it before accessing protected routes
 
-Signup accepts valid email addresses from any domain and creates accounts in a pending state. Once an issuer account is approved, its first sign-in requires changing the default password.
+Issuer application accounts remain inactive until the emailed activation code is confirmed and a password is set. Generic user-account approvals may continue to use the administrator-issued password workflow.
 
 ### Applications
 

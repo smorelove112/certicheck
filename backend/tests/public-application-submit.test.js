@@ -27,8 +27,8 @@ test.after(async () => {
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
-async function submitApplication(overrides = {}) {
-  return fetch(`http://localhost:${process.env.TEST_SERVER_PORT}/api/applications/submit`, {
+async function submitApplication(overrides = {}, endpoint = '/api/applications/submit') {
+  return fetch(`http://localhost:${process.env.TEST_SERVER_PORT}${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -54,13 +54,16 @@ async function adminRequest(route, method = 'GET') {
   });
 }
 
-test('public application submissions remain in the admin queue without email delivery', async () => {
-  const submitResponse = await submitApplication({ useCase: 'Academic credentials', wallet: 'demo-wallet' });
+test('public issuer applications are saved and send a confirmation notification', async () => {
+  const submitResponse = await submitApplication(
+    { useCase: 'Academic credentials', wallet: 'demo-wallet' },
+    '/api/issuers/apply'
+  );
   const submitted = await submitResponse.json();
   assert.equal(submitResponse.status, 201, JSON.stringify(submitted));
   assert.equal(submitted.success, true);
   assert.equal(submitted.application.contact_email, 'ada@acme.edu');
-  assert.equal(Object.hasOwn(submitted, 'notification'), false);
+  assert.deepEqual(submitted.notification, { emailSent: true });
 
   const queueResponse = await adminRequest('/pending?limit=50&offset=0');
   const queue = await queueResponse.json();
@@ -82,7 +85,7 @@ test('public application submissions allow optional use case and wallet but vali
   assert.equal(invalidResponse.status, 400);
 });
 
-test('admin application decisions succeed without attempting email delivery', async () => {
+test('admin application decisions return delivery status for approval email', async () => {
   const createResponse = await submitApplication({
     orgName: 'Decision University',
     contactName: 'Grace Hopper',
@@ -91,11 +94,21 @@ test('admin application decisions succeed without attempting email delivery', as
   const created = await createResponse.json();
   assert.equal(createResponse.status, 201, JSON.stringify(created));
 
-  const approveResponse = await adminRequest(`/${created.application.id}/approve`, 'PUT');
+  const approveResponse = await fetch(
+    `http://localhost:${process.env.TEST_SERVER_PORT}/api/admin/issuers/${created.application.id}/approve`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: 'Bearer demo-token',
+        'x-demo-user-type': 'admin',
+        'Content-Type': 'application/json'
+      }
+    }
+  );
   const approved = await approveResponse.json();
   assert.equal(approveResponse.status, 200, JSON.stringify(approved));
   assert.equal(approved.application.status, 'approved');
-  assert.equal(Object.hasOwn(approved, 'notification'), false);
+  assert.deepEqual(approved.notification, { emailSent: false });
 
   const rejectedApplication = await submitApplication({
     orgName: 'Rejected University',

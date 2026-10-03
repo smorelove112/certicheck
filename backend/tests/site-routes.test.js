@@ -30,6 +30,10 @@ test('main and admin routes serve their dedicated pages', async () => {
   assert.match(homeText, /Certicheck/i);
   assert.doesNotMatch(homeText, /Issuer Approval Console/i);
 
+  const activationResponse = await fetch(`${base}/activate-account`);
+  assert.equal(activationResponse.status, 200);
+  assert.match(await activationResponse.text(), /id="issuerActivationForm"/);
+
   const adminResponse = await fetch(`${base}/admin`);
   const adminText = await adminResponse.text();
   assert.equal(adminResponse.status, 200);

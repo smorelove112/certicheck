@@ -1,4 +1,5 @@
 const express = require('express');
+const QRCode = require('qrcode');
 const pool = require('../db/connection');
 const { verifyToken, verifyIssuer, logAudit } = require('../middleware/auth');
 const { pinJsonToIpfs, pinFileToIpfs } = require('../services/ipfsService');
@@ -10,6 +11,7 @@ const {
 } = require('../services/solanaService');
 const { getDemoCertificate } = require('../services/demoCertificateService');
 const { CertificateStore } = require('../services/certificateStore');
+const emailService = require('../services/emailService');
 const { isValidEmail } = require('../utils/validation');
 
 const router = express.Router();
@@ -148,6 +150,24 @@ async function safeQuery(text, params = []) {
     pool.query(text, params),
     new Promise((_, reject) => setTimeout(() => reject(new Error('Database query timed out')), timeoutMs))
   ]);
+}
+
+function getCertificateVerificationUrl(certificateId) {
+  const frontendOrigin = process.env.FRONTEND_URL || 'https://certicheck-psi.vercel.app';
+  const verificationUrl = new URL('/', frontendOrigin);
+  verificationUrl.searchParams.set('certificateId', certificateId);
+  return verificationUrl.toString();
+}
+
+async function sendCertificateIssuedEmail(certificate) {
+  const sent = await emailService.sendCertificateIssued(
+    certificate,
+    getCertificateVerificationUrl(certificate.certificate_id || certificate.certificateId)
+  );
+  if (!sent) {
+    console.error(`Certificate notification email was not delivered for ${certificate.certificate_id || certificate.certificateId}`);
+  }
+  return sent;
 }
 
 router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
@@ -373,35 +393,58 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
       localId: localCertificate?.id || null
     });
 
+    const issuedCertificate = {
+      certificate_id: trimmedCertificateId,
+      ipfs_cid: ipfsCid,
+      ipfs_uri: ipfsUri,
+      ipfs_source: ipfsSource,
+      blockchain_transaction_id: blockchainTransactionId,
+      on_chain: false,
+      certificate_type: trimmedCertificateType,
+      status: 'valid',
+      issued_at: dbCertificate?.issued_at || issuedAt,
+      issuer_name: trimmedIssuerName,
+      issuer_wallet: trimmedIssuerWallet,
+      holder_name: trimmedHolderName,
+      holder_email: trimmedHolderEmail,
+      metadata: storedMetadata
+    };
+    const emailSent = await sendCertificateIssuedEmail(issuedCertificate);
+    if (!emailSent) warnings.push('Certificate was issued, but the recipient notification email could not be delivered.');
+
     res.status(201).json({
       success: true,
       certificate: {
-        certificate_id: trimmedCertificateId,
-        ipfs_cid: ipfsCid,
-        ipfs_uri: ipfsUri,
-        ipfs_source: ipfsSource,
+        ...issuedCertificate,
         attachment_cid: attachmentDetails?.cid || null,
         attachment_filename: attachmentDetails?.filename || null,
         attachment_uri: attachmentDetails?.uri || null,
         attachment_source: attachmentDetails?.source || null,
-        blockchain_transaction_id: blockchainTransactionId,
-        on_chain: false,
-        certificate_type: trimmedCertificateType,
-        status: 'valid',
-        issued_at: dbCertificate?.issued_at || issuedAt,
         created_at: dbCertificate?.created_at || issuedAt,
-        verification_status: 'valid',
-        issuer_name: trimmedIssuerName,
-        issuer_wallet: trimmedIssuerWallet,
-        holder_name: trimmedHolderName,
-        holder_email: trimmedHolderEmail,
-        metadata: storedMetadata
+        verification_status: 'valid'
       },
+      notification: { emailSent },
       warnings
     });
   } catch (err) {
     console.error('Issue certificate error:', err);
     res.status(500).json({ error: 'Failed to issue certificate', details: err.message });
+  }
+});
+
+router.get('/qr/:certificateId', async (req, res) => {
+  try {
+    const certificateId = String(req.params.certificateId || '').trim();
+    if (!certificateId) return res.status(400).json({ error: 'Certificate ID is required' });
+
+    const verificationUrl = getCertificateVerificationUrl(certificateId);
+    const png = await QRCode.toBuffer(verificationUrl, { type: 'png', width: 240, margin: 1 });
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=3600');
+    return res.send(png);
+  } catch (err) {
+    console.error('Certificate QR generation failed:', err.message || err);
+    return res.status(500).json({ error: 'Unable to generate certificate verification QR code' });
   }
 });
 
@@ -601,7 +644,31 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
       blockchainTransactionId
     });
 
-    return res.status(201).json({ success: true, warnings, certificate: { certificate_id: trimmedCertificateId, ipfs_cid: ipfsCid, ipfs_uri: ipfsUri, ipfs_source: ipfsSource, attachment_cid: attachment.cid || null, attachment_filename: attachment.filename || null, attachment_uri: attachment.uri || null, attachment_source: attachment.source || null, blockchain_transaction_id: blockchainTransactionId, status: 'valid', verification_status: 'valid', issuer_name: issuerName, issuer_wallet: issuerWallet, holder_name: holderName, holder_email: holderEmail, certificate_type: certificateType, metadata: storedMetadata, issued_at: dbCertificate?.issued_at || issuedAt, created_at: dbCertificate?.created_at || issuedAt } });
+    const issuedCertificate = {
+      certificate_id: trimmedCertificateId,
+      ipfs_cid: ipfsCid,
+      ipfs_uri: ipfsUri,
+      ipfs_source: ipfsSource,
+      attachment_cid: attachment.cid || null,
+      attachment_filename: attachment.filename || null,
+      attachment_uri: attachment.uri || null,
+      attachment_source: attachment.source || null,
+      blockchain_transaction_id: blockchainTransactionId,
+      on_chain: true,
+      status: 'valid',
+      verification_status: 'valid',
+      issuer_name: issuerName,
+      issuer_wallet: issuerWallet,
+      holder_name: holderName,
+      holder_email: holderEmail,
+      certificate_type: certificateType,
+      metadata: storedMetadata,
+      issued_at: dbCertificate?.issued_at || issuedAt,
+      created_at: dbCertificate?.created_at || issuedAt
+    };
+    const emailSent = await sendCertificateIssuedEmail(issuedCertificate);
+    if (!emailSent) warnings.push('Certificate was issued, but the recipient notification email could not be delivered.');
+    return res.status(201).json({ success: true, warnings, notification: { emailSent }, certificate: issuedCertificate });
   } catch (err) {
     console.error('Issue client-signed error:', err);
     return res.status(500).json({ error: 'Failed to record client-signed issuance', details: err.message });

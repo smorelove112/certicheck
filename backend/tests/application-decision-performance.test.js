@@ -3,18 +3,17 @@ const assert = require('node:assert/strict');
 
 const pool = require('../src/db/connection');
 const Application = require('../src/models/Application');
-const User = require('../src/models/User');
 
-test('approval updates the application, issuer profile, and issuer account in one database round trip', async () => {
+test('approval stores a hashed activation code and updates the application in one database round trip', async () => {
   const originalQuery = pool.query;
   const originalDemoMode = process.env.DEMO_MODE;
-  const originalPasswordHash = User.getDefaultIssuerPasswordHash;
+  const activationCodeHash = 'a'.repeat(64);
+  const activationExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
   const approvedApplication = { id: 31, issuer_id: 12, status: 'approved' };
   let queryCount = 0;
   let queryText;
   let queryParams;
   process.env.DEMO_MODE = 'false';
-  User.getDefaultIssuerPasswordHash = async () => 'hashed-default-password';
   pool.query = async (sql, params) => {
     queryCount += 1;
     queryText = sql;
@@ -23,18 +22,26 @@ test('approval updates the application, issuer profile, and issuer account in on
   };
 
   try {
-    const result = await Application.approve(31, 7, 'Admin User', '/api/auth/admin/7/profile-picture');
+    const result = await Application.approve(
+      31,
+      7,
+      'Admin User',
+      '/api/auth/admin/7/profile-picture',
+      activationCodeHash,
+      activationExpiresAt
+    );
 
     assert.deepEqual(result, approvedApplication);
     assert.equal(queryCount, 1);
     assert.match(queryText, /WITH approved_application AS/);
     assert.match(queryText, /UPDATE issuer_profiles/);
     assert.match(queryText, /UPDATE users/);
-    assert.match(queryText, /must_change_password = CASE/);
-    assert.deepEqual(queryParams, [7, 31, 'Admin User', '/api/auth/admin/7/profile-picture', 'hashed-default-password']);
+    assert.match(queryText, /activation_code_hash = \$5/);
+    assert.match(queryText, /activation_expires_at = \$6/);
+    assert.match(queryText, /is_active = FALSE/);
+    assert.deepEqual(queryParams, [7, 31, 'Admin User', '/api/auth/admin/7/profile-picture', activationCodeHash, activationExpiresAt]);
   } finally {
     pool.query = originalQuery;
-    User.getDefaultIssuerPasswordHash = originalPasswordHash;
     if (originalDemoMode === undefined) delete process.env.DEMO_MODE;
     else process.env.DEMO_MODE = originalDemoMode;
   }

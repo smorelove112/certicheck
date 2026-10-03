@@ -10,6 +10,8 @@ const { initializeDatabase } = require('./db/init');
 // Routes
 const authRoutes = require('./routes/auth');
 const applicationRoutes = require('./routes/applications');
+const issuerApplyRoutes = applicationRoutes.issuerApplyRouter;
+const adminIssuerRoutes = applicationRoutes.adminIssuerRouter;
 const verifyRoutes = require('./routes/verify');
 const adminRoutes = require('./routes/admin');
 const certificateRoutes = require('./routes/certificates');
@@ -145,6 +147,8 @@ app.get('/api/network/tps', async (req, res) => {
 
 // ── ROUTES ─────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
+app.use('/api/issuers', issuerApplyRoutes);
+app.use('/api/admin/issuers', adminIssuerRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/verify', verifyRoutes);
 app.use('/api/admin', adminRoutes);

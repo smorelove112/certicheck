@@ -881,8 +881,9 @@ async function handleApplicationAction(action, id, button) {
       if (result.success !== true) throw new Error(result.error || 'The application update was not confirmed.');
       applyApplicationDecisionLocally(action, id, result.application);
       renderAdminDashboard();
-      const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application rejected and moved to rejected queue.';
-      showAdminToast(actionMessage, action === 'approve' ? 'success' : 'danger');
+      const actionMessage = result.warning ||
+        (action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application rejected and moved to rejected queue.');
+      showAdminToast(actionMessage, (result.warning || action === 'reject') ? 'danger' : 'success');
       void loadAdminDashboard();
       return true;
     } catch (err) {

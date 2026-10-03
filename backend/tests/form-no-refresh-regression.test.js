@@ -39,7 +39,7 @@ test('application form buttons do not submit the page', () => {
 test('application confirmation does not show an auto-generated CertiCheck email', () => {
   assert.doesNotMatch(indexHtml, /generatedEmailCard|Your CertiCheck email/);
   assert.doesNotMatch(scriptJs, /generateCertiCheckEmail|generatedEmailCard/);
-  assert.match(scriptJs, /showSuccessMessage\(officialEmail\)/);
+  assert.match(scriptJs, /showSuccessMessage\(email, data\.notification\?\.emailSent !== false\)/);
 });
 
 test('signup creates accounts directly and does not depend on email delivery', () => {
@@ -53,16 +53,28 @@ test('failed application submissions show an error instead of a false success st
   assert.match(indexHtml, /id="applicationSubmitError"[^>]*role="alert"/);
   assert.match(submitFunction, /submitButton\.disabled = true/);
   assert.match(submitFunction, /Your application was not submitted and is not yet in the admin review queue/);
-  const successIndex = submitFunction.indexOf('showSuccessMessage(email)');
+  assert.match(submitFunction, /data\.notification\?\.emailSent/);
+  const successIndex = submitFunction.indexOf('showSuccessMessage(email,');
   const catchIndex = submitFunction.indexOf('} catch (error) {');
   assert.ok(successIndex >= 0 && successIndex < catchIndex, 'Success should only be shown before the failure handler');
-  assert.doesNotMatch(submitFunction, /notification/);
 });
 
 test('static localhost previews use the deployed API instead of an unavailable localhost backend', () => {
   assert.match(scriptJs, /const localApiOrigin = \["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)\s*&& \["3000", "5000"\]\.includes\(window\.location\.port\)\s*\?\s*window\.location\.origin\s*:\s*null;/);
   assert.match(scriptJs, /"https:\/\/certicheck-backend-8hu3\.onrender\.com\/api"/);
-  assert.match(indexHtml, /script\.js\?v=20261003-password-reset/);
+  assert.match(indexHtml, /script\.js\?v=20261003-issuer-activation/);
+});
+
+test('issuer activation page is wired to the secure activation endpoint', () => {
+  assert.match(indexHtml, /id="page-activate-account"/);
+  assert.match(indexHtml, /id="issuerActivationForm"/);
+  assert.match(indexHtml, /id="activationCode"[^>]*pattern="\[0-9\]\{6\}"/);
+  assert.match(scriptJs, /function initIssuerActivationForm\(\)/);
+  assert.match(scriptJs, /\/auth\/activate-issuer/);
+  assert.match(scriptJs, /page === "activate-account"/);
+  assert.match(scriptJs, /ISSUER_ACTIVATION_REQUIRED/);
+  assert.match(scriptJs, /\/issuers\/apply/);
+  assert.match(indexHtml, /activation code to create your password/i);
 });
 
 test('user password-reset screens are wired to the email OTP endpoints', () => {
@@ -79,8 +91,19 @@ test('user password-reset screens are wired to the email OTP endpoints', () => {
   assert.doesNotMatch(adminHtml + adminJs, /forgot-password|verify-reset-otp|adminResetOtp/i);
 });
 
-test('login guidance explains the default password and required password change', () => {
-  assert.match(indexHtml, /default password is <strong>password<\/strong>.*must change it before you can access your account/i);
+test('certificate verification shows a credential-rich card and only celebrates valid results', () => {
+  assert.match(indexHtml, /id="verificationMiniCertificate"/);
+  assert.match(scriptJs, /function getMiniCertificateCardMarkup/);
+  assert.match(scriptJs, /certificates\/qr\//);
+  assert.match(scriptJs, /verification: true/);
+  assert.match(scriptJs, /statusText === 'VALID' && verification/);
+  assert.match(scriptJs, /verification \? ' verification-mini-certificate' : ''/);
+  assert.match(scriptJs, /statusText === 'REVOKED' \? ' is-revoked' : ''/);
+  assert.match(scriptJs, /statusText === 'VALID' && verification \? 'VERIFIED' : statusText/);
+});
+
+test('issuer activation guidance explains the emailed code and password setup', () => {
+  assert.match(indexHtml, /activation code to create your password/i);
 });
 
 test('admin dashboard avoids automatic refreshes and refreshes after admin actions', () => {

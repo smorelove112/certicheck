@@ -430,6 +430,13 @@ test('backend certificate issue, lookup, and revoke API flow', async () => {
   assert.ok(issueResult.certificate.ipfs_cid);
   assert.ok(issueResult.certificate.issued_at);
   assert.equal(issueResult.certificate.metadata.program, 'Testing');
+  assert.deepEqual(issueResult.notification, { emailSent: true });
+
+  const qrResponse = await fetch(`${baseUrl}/api/certificates/qr/${encodeURIComponent(certificateId)}`);
+  assert.equal(qrResponse.status, 200);
+  assert.equal(qrResponse.headers.get('content-type'), 'image/png');
+  const qrBytes = Buffer.from(await qrResponse.arrayBuffer());
+  assert.deepEqual([...qrBytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 
   const listResponse = await fetch(`${baseUrl}/api/certificates/my-issued`, {
     headers: demoHeaders

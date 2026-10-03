@@ -12,11 +12,17 @@ CREATE TABLE IF NOT EXISTS users (
   last_name VARCHAR(128),
   user_type VARCHAR(20) DEFAULT 'user' CHECK (user_type IN ('user', 'issuer', 'admin')),
   is_active BOOLEAN DEFAULT FALSE,
+  is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  activation_code_hash VARCHAR(64),
+  activation_expires_at TIMESTAMP,
   must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS activation_code_hash VARCHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS activation_expires_at TIMESTAMP;
 ALTER TABLE users DROP COLUMN IF EXISTS reset_otp_code;
 ALTER TABLE users DROP COLUMN IF EXISTS reset_otp_expires_at;
 ALTER TABLE users DROP COLUMN IF EXISTS reset_otp_attempts;

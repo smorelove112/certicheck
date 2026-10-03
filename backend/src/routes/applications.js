@@ -1,9 +1,13 @@
 const express = require('express');
+const crypto = require('crypto');
 const Application = require('../models/Application');
 const pool = require('../db/connection');
 const { verifyToken, verifyAdmin, verifyAdminToken, logAudit } = require('../middleware/auth');
 const { isValidEmail } = require('../utils/validation');
+const emailService = require('../services/emailService');
 const router = express.Router();
+const issuerApplyRouter = express.Router();
+const adminIssuerRouter = express.Router();
 
 function getAdminActor(req) {
   const id = req.user.adminId || req.user.id;
@@ -35,8 +39,7 @@ function scheduleApplicationDecisionFollowUp(actor, appId, approved) {
   });
 }
 
-// ── SUBMIT APPLICATION ──────────────────────────────────────────────────────
-router.post('/submit', async (req, res) => {
+async function submitApplication(req, res) {
   try {
     const { orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet } = req.body;
 
@@ -71,11 +74,20 @@ router.post('/submit', async (req, res) => {
     });
     const { applicant_user_id: applicantUserId, ...application } = app;
     userId = userId || applicantUserId;
+    const confirmationSent = await emailService.sendApplicationReceived({
+      to: applicantEmail,
+      contactName,
+      organizationName: orgName
+    });
+    if (!confirmationSent) {
+      console.error(`Application confirmation email was not delivered to ${applicantEmail}`);
+    }
 
     res.status(201).json({
       success: true,
       message: 'Application submitted successfully',
-      application: { ...application, generated_email: application.generated_email || generatedEmail }
+      application: { ...application, generated_email: application.generated_email || generatedEmail },
+      notification: { emailSent: confirmationSent }
     });
 
     setImmediate(() => {
@@ -87,7 +99,11 @@ router.post('/submit', async (req, res) => {
     console.error('Application submit error:', err);
     res.status(500).json({ error: 'Failed to submit application' });
   }
-});
+}
+
+// Keep the existing URL and expose the issuer-facing onboarding URL.
+router.post('/submit', submitApplication);
+issuerApplyRouter.post('/apply', submitApplication);
 
 // ── GET PENDING APPLICATIONS (ADMIN) ────────────────────────────────────────
 router.get('/pending', verifyAdminToken, verifyAdmin, async (req, res) => {
@@ -156,26 +172,62 @@ router.get('/approved', verifyAdminToken, verifyAdmin, async (req, res) => {
 });
 
 // ── APPROVE APPLICATION (ADMIN) ─────────────────────────────────────────────
-router.put('/:appId/approve', verifyAdminToken, verifyAdmin, async (req, res) => {
+async function approveApplication(req, res) {
   try {
     const { appId } = req.params;
 
     const actor = await getAdminActor(req);
-    const app = await Application.approve(appId, actor.id, actor.name, actor.profilePicture);
+    const activationCode = String(crypto.randomInt(100000, 1000000));
+    const activationCodeHash = crypto
+      .createHmac('sha256', process.env.JWT_SECRET || 'dev_secret_key')
+      .update(activationCode)
+      .digest('hex');
+    const activationExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    const app = await Application.approve(
+      appId,
+      actor.id,
+      actor.name,
+      actor.profilePicture,
+      activationCodeHash,
+      activationExpiresAt
+    );
     if (!app) return res.status(404).json({ error: 'Application not found' });
 
     scheduleApplicationDecisionFollowUp(actor, appId, true);
 
-    res.json({
+    let emailSent = false;
+    if (process.env.DEMO_MODE !== 'true') {
+      const frontendUrl = String(process.env.FRONTEND_URL || 'https://certicheck-psi.vercel.app').replace(/\/+$/, '');
+      emailSent = await emailService.sendApplicationApproval({
+        to: app.activation_email || app.contact_email,
+        contactName: app.contact_name,
+        organizationName: app.organization_name,
+        activationCode,
+        activationUrl: `${frontendUrl}/activate-account`
+      });
+      if (!emailSent) {
+        console.error(`Issuer activation email was not delivered for application ${appId}`);
+      }
+    }
+
+    const response = {
       success: true,
       message: 'Application approved',
-      application: app
-    });
+      application: app,
+      notification: { emailSent }
+    };
+    if (!emailSent && process.env.DEMO_MODE !== 'true') {
+      response.warning = 'Application was approved, but the activation email could not be delivered.';
+    }
+    res.json(response);
   } catch (err) {
     console.error('Approve application error:', err);
     res.status(500).json({ error: 'Failed to approve application' });
   }
-});
+}
+
+router.put('/:appId/approve', verifyAdminToken, verifyAdmin, approveApplication);
+adminIssuerRouter.put('/:appId/approve', verifyAdminToken, verifyAdmin, approveApplication);
 
 // ── CREATE OR LINK ISSUER ACCOUNT FOR APPLICATION (ADMIN) ──────────────────
 router.post('/:appId/create-account', verifyAdminToken, verifyAdmin, async (req, res) => {
@@ -275,3 +327,5 @@ router.get('/', verifyAdminToken, verifyAdmin, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.issuerApplyRouter = issuerApplyRouter;
+module.exports.adminIssuerRouter = adminIssuerRouter;

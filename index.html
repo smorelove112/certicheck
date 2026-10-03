@@ -374,7 +374,7 @@
           <label class="field-label" for="signupLastName">Last Name</label>
           <input class="field-input" id="signupLastName" name="family-name" type="text" autocomplete="family-name" placeholder="Doe"/>
         </div>
-        <p style="font-size:13px;color:var(--text-secondary);margin:8px 0 16px;">After an admin approves your account, sign in with the default password <strong>password</strong> and choose a new password.</p>
+        <p style="font-size:13px;color:var(--text-secondary);margin:8px 0 16px;">We will email you when your issuer application is received and reviewed. If approved, use the activation code to create your password.</p>
         <div id="signupError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
         <button class="btn-primary" id="signupBtn" style="width:100%">Create Account</button>
         <p style="text-align:center;color:var(--text-secondary);margin-top:16px;font-size:13px">
@@ -408,16 +408,19 @@
           <label for="loginRemember" style="margin:0;cursor:pointer;font-size:14px;color:var(--text-secondary);">Remember my email</label>
         </div>
         <div id="loginHelp" style="font-size:11px;color:var(--text-secondary);margin-bottom:12px;">
-          The default password is <strong>password</strong>. After signing in, you must change it before you can access your account.
+          After issuer approval, use the emailed activation code to create your password. Other approved accounts may use the password supplied by their administrator.
         </div>
         <div id="loginError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
         <button class="btn-primary" id="loginBtn" style="width:100%">Sign In</button>
-        
+
         <p style="text-align:center;color:var(--text-secondary);margin-top:16px;font-size:13px">
           Don't have an account? <button class="btn-ghost" data-page="apply" style="background:none;border:none;padding:0;text-decoration:underline;cursor:pointer">Sign up</button>
         </p>
         <p style="text-align:center;color:var(--text-secondary);margin-top:12px;font-size:13px">
           <button class="btn-ghost" data-page="forgot-password" style="background:none;border:none;padding:0;text-decoration:underline;cursor:pointer">Forgot password?</button>
+        </p>
+        <p style="text-align:center;color:var(--text-secondary);margin-top:8px;font-size:13px">
+          <button class="btn-ghost" data-page="activate-account" style="background:none;border:none;padding:0;text-decoration:underline;cursor:pointer">Activate an approved issuer account</button>
         </p>
       </div>
     </div>
@@ -430,7 +433,39 @@
     </dialog>
   </div>
 
-  
+  <!-- ══════════════════════════════════════
+       PAGE: ACTIVATE ISSUER ACCOUNT
+  ══════════════════════════════════════ -->
+  <div id="page-activate-account" class="page">
+    <div class="page-wrap" style="max-width:500px">
+      <div class="page-header">
+        <h1 class="page-title">Activate issuer account</h1>
+        <p class="page-desc">Enter the 6-digit code from your approval email and choose a password. Codes expire after 15 minutes.</p>
+      </div>
+
+      <form class="form-card" id="issuerActivationForm">
+        <div class="field">
+          <label class="field-label" for="activationEmail">Email</label>
+          <input class="field-input" id="activationEmail" type="email" autocomplete="email" required/>
+        </div>
+        <div class="field">
+          <label class="field-label" for="activationCode">6-digit activation code</label>
+          <input class="field-input" id="activationCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required/>
+        </div>
+        <div class="field">
+          <label class="field-label" for="activationPassword">Create password</label>
+          <input class="field-input" id="activationPassword" type="password" autocomplete="new-password" minlength="8" required/>
+        </div>
+        <div class="field">
+          <label class="field-label" for="activationConfirmPassword">Confirm password</label>
+          <input class="field-input" id="activationConfirmPassword" type="password" autocomplete="new-password" minlength="8" required/>
+        </div>
+        <div id="activationError" role="alert" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
+        <button class="btn-primary" id="issuerActivationBtn" type="submit" style="width:100%">Activate account</button>
+      </form>
+    </div>
+  </div>
+
 
   <!-- ══════════════════════════════════════
        PAGE: FORGOT PASSWORD
@@ -732,6 +767,7 @@
           <div class="verification-status-icon" id="verificationStatusIcon" aria-hidden="true"></div>
           <h2 id="verificationResultTitle" class="verification-result-title"></h2>
           <p id="verificationResultMessage" class="verification-result-message"></p>
+          <div id="verificationMiniCertificate"></div>
           <dl id="verificationResultMetadata" class="verification-result-metadata"></dl>
           <div class="verification-modal-actions">
             <button class="btn-primary" id="verificationResultClose" type="button">Verify another</button>
@@ -785,6 +821,6 @@
     </div>
   </footer>
 
-  <script src="script.js?v=20261003-password-reset"></script>
+  <script src="script.js?v=20261003-issuer-activation"></script>
 </body>
 </html>

@@ -37,7 +37,7 @@ ADMIN_EMAIL=admin@certicheck.com
 
 The backend seeds three admin logins on first authentication: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. All use the default password `password`.
 
-Signup and login accept syntactically valid email addresses from any domain. Email addresses are used as account identifiers and contact records; the application does not send mail or verify mailbox ownership. Newly approved issuer accounts must change the default password on first sign-in.
+Issuer applications, approvals, and certificate issuance send email when `SMTP_*` settings are configured. In local development without SMTP, email messages are printed to the backend console. Approved issuer applicants activate with the emailed 6-digit code and create their own password; generic user-account approvals may still use the administrator-issued password workflow.
 
 ## 4. Initialize the database schema
 
