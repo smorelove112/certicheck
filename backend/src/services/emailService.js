@@ -19,12 +19,11 @@ class EmailService {
   }
 
   initTransporter() {
-    const host = process.env.SMTP_HOST?.trim() || process.env.EMAIL_HOST?.trim();
-    const user = process.env.SMTP_USER?.trim() || process.env.EMAIL_USER?.trim();
-    const pass = process.env.SMTP_PASS?.trim() || process.env.EMAIL_PASS?.trim();
-    const port = Number.parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT, 10) || 587;
-    const secureSetting = process.env.SMTP_SECURE ?? process.env.EMAIL_SECURE;
-    const secure = secureSetting === undefined ? port === 465 : secureSetting === 'true';
+    const host = process.env.SMTP_HOST;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    const port = Number(process.env.SMTP_PORT) || 587;
+    const secure = process.env.SMTP_SECURE === 'true';
     if (host && user && pass) {
       this.transporter = nodemailer.createTransport({
         host,
@@ -48,14 +47,13 @@ class EmailService {
       if (this.mode === 'console') {
         console.log('📧 Email Service: Running in Development/Console Mode');
       } else {
-        console.error('📧 Email Service: SMTP_HOST, SMTP_USER, and SMTP_PASS (or EMAIL_* equivalents) are required in production');
+        console.error('📧 Email Service: SMTP_HOST, SMTP_USER, and SMTP_PASS are required in production');
       }
     }
   }
 
   getFromAddress() {
-    return process.env.SMTP_FROM || process.env.EMAIL_FROM ||
-      process.env.SMTP_USER || process.env.EMAIL_USER || 'noreply@certicheck.com';
+    return process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@certicheck.com';
   }
 
   getStatus() {

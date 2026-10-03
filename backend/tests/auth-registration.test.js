@@ -162,8 +162,40 @@ test('password reset reports email delivery failure and invalidates the unsent c
   const data = await response.json();
 
   assert.equal(response.status, 503, JSON.stringify(data));
-  assert.match(data.error, /Unable to send a reset code/);
+  assert.equal(data.error, 'Unable to send code right now.');
   assert.equal(consumed, true);
+});
+
+test('password reset returns email failure even if the undelivered OTP cannot be cleaned up', async () => {
+  User.findByEmail = async () => ({ id: 42, email: 'ada@example.com' });
+  OTP.create = async email => ({ email, otp_code: '654321' });
+  OTP.consume = async () => {
+    throw new Error('cleanup failed');
+  };
+  emailService.sendOTP = async () => false;
+
+  const response = await post('/forgot-password', { email: 'ada@example.com' });
+  const data = await response.json();
+
+  assert.equal(response.status, 503, JSON.stringify(data));
+  assert.equal(data.error, 'Unable to send code right now.');
+});
+
+test('password reset identifies database-stage failures without exposing database details', async () => {
+  User.findByEmail = async () => ({ id: 42, email: 'ada@example.com' });
+  OTP.create = async () => {
+    const error = new Error('database schema detail');
+    error.code = '42703';
+    throw error;
+  };
+
+  const response = await post('/forgot-password', { email: 'ada@example.com' });
+  const data = await response.json();
+
+  assert.equal(response.status, 500, JSON.stringify(data));
+  assert.equal(data.stage, 'otp-creation');
+  assert.equal(data.error, 'Failed to process forgot password request');
+  assert.equal(JSON.stringify(data).includes('database schema detail'), false);
 });
 
 test('issuer activation requires matching passwords and activates with the emailed code', async () => {

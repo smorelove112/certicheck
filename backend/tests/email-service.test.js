@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const nodemailer = require('nodemailer');
 
 process.env.SMTP_HOST = 'smtp.example.test';
+process.env.SMTP_PORT = '587';
+process.env.SMTP_SECURE = 'false';
 process.env.SMTP_USER = 'sender@example.test';
 process.env.SMTP_PASS = 'not-a-real-password';
 process.env.NODE_ENV = 'production';
@@ -17,6 +19,18 @@ nodemailer.createTransport = options => ({
 });
 
 const emailService = require('../src/services/emailService');
+
+test('SMTP transport uses the SMTP environment variables directly', () => {
+  assert.equal(emailService.mode, 'smtp');
+  assert.equal(emailService.transporter.options.host, process.env.SMTP_HOST);
+  assert.equal(emailService.transporter.options.port, 587);
+  assert.equal(emailService.transporter.options.secure, false);
+  assert.deepEqual(emailService.transporter.options.auth, {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  });
+  assert.equal(emailService.getFromAddress(), process.env.SMTP_USER);
+});
 
 test('SMTP transport verifies credentials and reports only a safe status', async () => {
   let verified = false;
@@ -88,6 +102,7 @@ test('onboarding and credential emails include the required details without send
 
   assert.equal(await emailService.sendOTP('grace@example.edu', '246810'), true);
   assert.equal(delivered.length, 4);
+  assert.equal(delivered[3].from, process.env.SMTP_FROM || process.env.SMTP_USER);
   assert.equal(delivered[3].to, 'grace@example.edu');
   assert.match(delivered[3].subject, /verification code/i);
   assert.match(delivered[3].text, /246810/);

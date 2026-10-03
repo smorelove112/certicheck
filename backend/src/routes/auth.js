@@ -778,6 +778,7 @@ router.post('/activate-issuer', issuerActivationRateLimiter, async (req, res) =>
 });
 
 router.post('/forgot-password', async (req, res) => {
+  let failureStage = 'validation';
   try {
     const { email } = req.body;
     if (!email || typeof email !== 'string') {
@@ -789,24 +790,32 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(400).json({ error: 'Valid email is required' });
     }
 
-    // Check if user exists (Optional: can just send OTP anyway to avoid enumeration)
+    failureStage = 'account-lookup';
     const user = await User.findByEmail(normalizedEmail);
     if (!user) {
-      // Don't leak if user exists or not, just return success
-      return res.json({ success: true, message: 'If an account with that email exists, we sent a reset code.' });
+      return res.json({ success: true, message: 'If an account exists, we sent a code.' });
     }
 
+    failureStage = 'otp-creation';
     const otp = await OTP.create(normalizedEmail, 'reset_password');
+    failureStage = 'email-delivery';
     const sent = await emailService.sendOTP(normalizedEmail, otp.otp_code);
     if (!sent) {
-      await OTP.consume(normalizedEmail, otp.otp_code, 'reset_password');
-      return res.status(503).json({ error: 'Unable to send a reset code right now. Please try again later.' });
+      try {
+        await OTP.consume(normalizedEmail, otp.otp_code, 'reset_password');
+      } catch (cleanupError) {
+        console.error('Failed to invalidate undelivered password reset code:', cleanupError.message || cleanupError);
+      }
+      return res.status(503).json({ error: 'Unable to send code right now.' });
     }
 
-    res.json({ success: true, message: 'If an account with that email exists, we sent a reset code.' });
+    return res.json({ success: true, message: 'If an account exists, we sent a code.' });
   } catch (err) {
-    console.error('Forgot password error:', err);
-    res.status(500).json({ error: 'Failed to process forgot password request' });
+    console.error(`Forgot password request failed during ${failureStage}:`, {
+      code: err.code || err.name || 'UNKNOWN_ERROR',
+      message: err.message || String(err)
+    });
+    res.status(500).json({ error: 'Failed to process forgot password request', stage: failureStage });
   }
 });
 
