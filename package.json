@@ -7,5 +7,9 @@
   },
   "scripts": {
     "dev": "live-server --port=5500 --host=0.0.0.0 --open=index.html"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.5",
+    "googleapis": "^183.0.0"
   }
 }

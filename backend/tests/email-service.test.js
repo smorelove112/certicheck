@@ -1,64 +1,58 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const nodemailer = require('nodemailer');
 
-process.env.SMTP_HOST = 'smtp.example.test';
-process.env.SMTP_PORT = '587';
-process.env.SMTP_SECURE = 'false';
-process.env.SMTP_USER = 'sender@example.test';
-process.env.SMTP_PASS = 'not-a-real-password';
+process.env.GMAIL_CLIENT_ID = 'test-client-id';
+process.env.GMAIL_CLIENT_SECRET = 'test-client-secret';
+process.env.GMAIL_REFRESH_TOKEN = 'test-refresh-token';
+process.env.GMAIL_FROM = 'sender@example.test';
 process.env.NODE_ENV = 'production';
 
 const delivered = [];
-nodemailer.createTransport = options => ({
-  options,
-  async sendMail(message) {
-    delivered.push(message);
-    return { messageId: `dummy-${delivered.length}`, accepted: [message.to], rejected: [] };
-  }
-});
-
 const emailService = require('../src/services/emailService');
 
-test('SMTP transport uses the SMTP environment variables directly', () => {
-  assert.equal(emailService.mode, 'smtp');
-  assert.equal(emailService.transporter.options.host, process.env.SMTP_HOST);
-  assert.equal(emailService.transporter.options.port, 587);
-  assert.equal(emailService.transporter.options.secure, false);
-  assert.deepEqual(emailService.transporter.options.auth, {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
+function decodeMimeBodies(request) {
+  const raw = Buffer.from(request.requestBody.raw, 'base64url').toString();
+  const bodies = [...raw.matchAll(/Content-Transfer-Encoding: base64\r\n\r\n([\s\S]*?)(?=\r\n--certicheck-|$)/g)]
+    .map(([, body]) => Buffer.from(body.replace(/\r\n/g, ''), 'base64').toString());
+  return { raw, bodies };
+}
+
+test('Gmail API is configured with OAuth refresh-token credentials', () => {
+  assert.equal(emailService.mode, 'gmail-api');
+  assert.equal(emailService.getFromAddress(), process.env.GMAIL_FROM);
+  assert.deepEqual(emailService.oauth2Client.credentials, {
+    refresh_token: process.env.GMAIL_REFRESH_TOKEN
   });
-  assert.equal(emailService.getFromAddress(), process.env.SMTP_USER);
 });
 
-test('SMTP transport verifies credentials and reports only a safe status', async () => {
-  let verified = false;
-  emailService.transporter.verify = async () => {
-    verified = true;
-  };
-
+test('Gmail API verifies OAuth credentials and reports only a safe status', async () => {
+  emailService.oauth2Client.getAccessToken = async () => ({ token: 'test-access-token' });
   const status = await emailService.verifyTransport();
-  assert.equal(verified, true);
   assert.deepEqual(status, {
-    mode: 'smtp',
+    mode: 'gmail-api',
     configured: true,
-    verification: 'verified',
+    verification: 'authenticated',
     errorCode: null
   });
 
-  emailService.transporter.verify = async () => {
-    const error = new Error('Authentication failed');
-    error.code = 'EAUTH';
+  emailService.oauth2Client.getAccessToken = async () => {
+    const error = new Error('Invalid refresh token');
+    error.code = 'invalid_grant';
     throw error;
   };
   const failedStatus = await emailService.verifyTransport();
   assert.equal(failedStatus.verification, 'failed');
-  assert.equal(failedStatus.errorCode, 'EAUTH');
-  assert.equal(JSON.stringify(failedStatus).includes(process.env.SMTP_PASS), false);
+  assert.equal(failedStatus.errorCode, 'invalid_grant');
+  assert.equal(JSON.stringify(failedStatus).includes(process.env.GMAIL_REFRESH_TOKEN), false);
 });
 
-test('onboarding and credential emails include the required details without sending outside the mock', async () => {
+test('onboarding and credential emails use Gmail API and preserve attachments', async () => {
+  emailService.oauth2Client.getAccessToken = async () => ({ token: 'test-access-token' });
+  emailService.gmailApi.users.messages.send = async request => {
+    delivered.push(request);
+    return { data: { id: `dummy-${delivered.length}` } };
+  };
+
   assert.equal(await emailService.sendApplicationReceived({
     to: 'applicant@example.edu',
     contactName: 'Ada <Admin>',
@@ -86,41 +80,38 @@ test('onboarding and credential emails include the required details without send
   }, 'https://certicheck.example/?certificateId=CERT-EMAIL-001'), true);
 
   assert.equal(delivered.length, 3);
-  assert.match(delivered[0].html, /Application received/);
-  assert.match(delivered[0].html, /Ada &lt;Admin&gt;/);
-  assert.match(delivered[1].text, /123456/);
-  assert.match(delivered[1].html, /activate-account/);
-  assert.equal(delivered[2].to, 'grace@example.edu');
-  assert.match(delivered[2].html, /Computer Science/);
-  assert.match(delivered[2].html, /2026/);
-  assert.match(delivered[2].html, /gateway\.pinata\.cloud\/ipfs\/bafy-example/);
-  assert.match(delivered[2].html, /explorer\.solana\.com\/tx\/dummy-signature\?cluster=devnet/);
-  assert.match(delivered[2].html, /certificate-verification-qr/);
-  assert.equal(delivered[2].attachments[0].cid, 'certificate-verification-qr');
-  assert.ok(Buffer.isBuffer(delivered[2].attachments[0].content));
-  assert.equal(delivered[2].html.includes('not-included'), false);
+  const { raw: applicationRaw, bodies: applicationBodies } = decodeMimeBodies(delivered[0]);
+  const { bodies: approvalBodies } = decodeMimeBodies(delivered[1]);
+  const { raw: certificateRaw, bodies: certificateBodies } = decodeMimeBodies(delivered[2]);
+  assert.equal(delivered[0].userId, 'me');
+  assert.match(applicationBodies.join(''), /Application received/);
+  assert.match(applicationBodies.join(''), /Ada &lt;Admin&gt;/);
+  assert.match(approvalBodies.join(''), /123456/);
+  assert.match(approvalBodies.join(''), /activate-account/);
+  assert.match(certificateRaw, /To: grace@example\.edu/);
+  assert.match(certificateBodies.join(''), /Computer Science/);
+  assert.match(certificateBodies.join(''), /2026/);
+  assert.match(certificateBodies.join(''), /gateway\.pinata\.cloud\/ipfs\/bafy-example/);
+  assert.match(certificateBodies.join(''), /explorer\.solana\.com\/tx\/dummy-signature\?cluster=devnet/);
+  assert.match(certificateBodies.join(''), /certificate-verification-qr/);
+  assert.match(certificateRaw, /Content-ID: <certificate-verification-qr>/);
+  assert.match(certificateRaw, /Content-Type: image\/png; name="certificate-verification\.png"/);
+  assert.equal(certificateBodies.join('').includes('not-included'), false);
 
   assert.equal(await emailService.sendOTP('grace@example.edu', '246810'), true);
   assert.equal(delivered.length, 4);
-  assert.equal(delivered[3].from, process.env.SMTP_FROM || process.env.SMTP_USER);
-  assert.equal(delivered[3].to, 'grace@example.edu');
-  assert.match(delivered[3].subject, /verification code/i);
-  assert.match(delivered[3].text, /246810/);
-  assert.match(delivered[3].html, /246810/);
+  const { raw: otpRaw, bodies: otpBodies } = decodeMimeBodies(delivered[3]);
+  assert.match(otpRaw, /From: sender@example\.test/);
+  assert.match(otpRaw, /grace@example\.edu/);
+  assert.match(otpBodies.join(''), /verification code/i);
+  assert.match(otpBodies.join(''), /246810/);
 });
 
-test('SMTP recipient rejection is reported as failed delivery', async () => {
-  const originalSendMail = emailService.transporter.sendMail;
-  emailService.transporter.sendMail = async () => ({
-    messageId: 'dummy-rejected',
-    accepted: [],
-    rejected: ['grace@example.edu'],
-    responseCode: 550
-  });
-
-  try {
-    assert.equal(await emailService.sendOTP('grace@example.edu', '135790'), false);
-  } finally {
-    emailService.transporter.sendMail = originalSendMail;
-  }
+test('Gmail API errors are reported as failed delivery', async () => {
+  emailService.gmailApi.users.messages.send = async () => {
+    const error = new Error('Permission denied');
+    error.response = { status: 403, data: { error: { message: 'Insufficient permission' } } };
+    throw error;
+  };
+  assert.equal(await emailService.sendOTP('grace@example.edu', '135790'), false);
 });

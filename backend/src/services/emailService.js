@@ -1,5 +1,6 @@
-const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 const QRCode = require('qrcode');
+const { google } = require('googleapis');
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, character => ({
@@ -19,65 +20,120 @@ class EmailService {
   }
 
   initTransporter() {
-    const host = process.env.SMTP_HOST;
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    const port = Number(process.env.SMTP_PORT) || 587;
-    const secure = process.env.SMTP_SECURE === 'true';
-    if (host && user && pass) {
-      this.transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 20000,
-        auth: {
-          user,
-          pass,
-        },
-      });
-      this.mode = 'smtp';
+    const gmailConfig = {
+      clientId: process.env.GMAIL_CLIENT_ID,
+      clientSecret: process.env.GMAIL_CLIENT_SECRET,
+      refreshToken: process.env.GMAIL_REFRESH_TOKEN,
+      from: process.env.GMAIL_FROM
+    };
+    const hasGmailConfig = Object.values(gmailConfig).some(Boolean);
+    this.transporter = null;
+    this.oauth2Client = null;
+    this.gmailApi = null;
+    if (Object.values(gmailConfig).every(Boolean)) {
+      this.oauth2Client = new google.auth.OAuth2(
+        gmailConfig.clientId,
+        gmailConfig.clientSecret,
+        process.env.GMAIL_REDIRECT_URI || 'https://developers.google.com/oauthplayground'
+      );
+      this.oauth2Client.setCredentials({ refresh_token: gmailConfig.refreshToken });
+      this.gmailApi = google.gmail({ version: 'v1', auth: this.oauth2Client });
+      this.mode = 'gmail-api';
       this.transportVerification = { status: 'pending' };
-      console.log('📧 Email Service: SMTP configured');
+      console.log('📧 Email Service: Gmail API configured');
+      return;
+    }
+    if (hasGmailConfig) {
+      this.mode = 'disabled';
+      this.transportVerification = { status: 'failed', errorCode: 'GMAIL_OAUTH_CONFIG_INCOMPLETE' };
+      console.error('📧 Email Service: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, and GMAIL_FROM are all required');
+      return;
+    }
+    this.mode = process.env.NODE_ENV === 'production' ? 'disabled' : 'console';
+    this.transportVerification = { status: this.mode };
+    if (this.mode === 'console') {
+      console.log('📧 Email Service: Running in Development/Console Mode');
     } else {
-      this.transporter = null;
-      this.mode = process.env.NODE_ENV === 'production' ? 'disabled' : 'console';
-      this.transportVerification = { status: this.mode };
-      if (this.mode === 'console') {
-        console.log('📧 Email Service: Running in Development/Console Mode');
-      } else {
-        console.error('📧 Email Service: SMTP_HOST, SMTP_USER, and SMTP_PASS are required in production');
-      }
+      console.error('📧 Email Service: Gmail API OAuth settings are required in production');
     }
   }
 
   getFromAddress() {
-    return process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@certicheck.com';
+    return process.env.GMAIL_FROM || 'noreply@certicheck.com';
   }
 
   getStatus() {
     return {
       mode: this.mode,
-      configured: this.mode === 'smtp',
+      configured: this.mode === 'gmail-api',
       verification: this.transportVerification.status,
       errorCode: this.transportVerification.errorCode || null
     };
   }
 
   async verifyTransport() {
-    if (this.mode !== 'smtp') return this.getStatus();
-
-    try {
-      await this.transporter.verify();
-      this.transportVerification = { status: 'verified' };
-      console.log('📧 Email Service: SMTP connection and authentication verified');
-    } catch (error) {
-      const errorCode = error.code || error.name || 'SMTP_VERIFY_FAILED';
-      this.transportVerification = { status: 'failed', errorCode };
-      console.error(`📧 Email Service: SMTP verification failed (${errorCode}${error.responseCode ? `, response ${error.responseCode}` : ''}): ${error.message}`);
+    if (this.mode === 'gmail-api') {
+      try {
+        const token = await this.oauth2Client.getAccessToken();
+        if (!token?.token) throw new Error('Google OAuth did not return an access token');
+        this.transportVerification = { status: 'authenticated' };
+        console.log('📧 Email Service: Gmail API OAuth credentials verified');
+      } catch (error) {
+        const errorCode = error.code || error.name || 'GMAIL_OAUTH_VERIFY_FAILED';
+        this.transportVerification = { status: 'failed', errorCode };
+        console.error(`📧 Email Service: Gmail API authentication failed (${errorCode}): ${error.message}`);
+      }
+      return this.getStatus();
     }
     return this.getStatus();
+  }
+
+  buildGmailRawMessage({ to, subject, html, text, attachments }) {
+    const safeHeader = value => String(value || '').replace(/[\r\n]+/g, ' ').trim();
+    const encodeHeader = value => `=?UTF-8?B?${Buffer.from(safeHeader(value)).toString('base64')}?=`;
+    const wrapBase64 = value => value.match(/.{1,76}/g)?.join('\r\n') || '';
+    const boundaryRelated = `certicheck-related-${crypto.randomBytes(12).toString('hex')}`;
+    const boundaryAlternative = `certicheck-alternative-${crypto.randomBytes(12).toString('hex')}`;
+    const recipients = (Array.isArray(to) ? to : [to]).map(safeHeader).filter(Boolean);
+    const lines = [
+      `From: ${safeHeader(this.getFromAddress())}`,
+      `To: ${recipients.join(', ')}`,
+      `Subject: ${encodeHeader(subject)}`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/related; boundary="${boundaryRelated}"`,
+      '',
+      `--${boundaryRelated}`,
+      `Content-Type: multipart/alternative; boundary="${boundaryAlternative}"`,
+      '',
+      `--${boundaryAlternative}`,
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      wrapBase64(Buffer.from(text || '').toString('base64')),
+      `--${boundaryAlternative}`,
+      'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      wrapBase64(Buffer.from(html || '').toString('base64')),
+      `--${boundaryAlternative}--`
+    ];
+
+    for (const attachment of attachments) {
+      const content = Buffer.isBuffer(attachment.content)
+        ? attachment.content
+        : Buffer.from(attachment.content || '', 'base64');
+      lines.push(
+        `--${boundaryRelated}`,
+        `Content-Type: ${safeHeader(attachment.contentType || 'application/octet-stream')}; name="${safeHeader(attachment.filename || 'attachment')}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-Disposition: inline; filename="${safeHeader(attachment.filename || 'attachment')}"`,
+        ...(attachment.cid ? [`Content-ID: <${safeHeader(attachment.cid)}>`] : []),
+        '',
+        wrapBase64(content.toString('base64'))
+      );
+    }
+    lines.push(`--${boundaryRelated}--`, '');
+    return Buffer.from(lines.join('\r\n')).toString('base64url');
   }
 
   async sendEmail({ to, subject, html, text, attachments = [] }) {
@@ -89,31 +145,28 @@ class EmailService {
       console.log('=========================================\n');
       return true;
     }
-    if (this.mode !== 'smtp') {
-      console.error('📧 Email Send Error: SMTP is not configured');
-      return false;
-    }
-
-    try {
-      const info = await this.transporter.sendMail({
-        from: this.getFromAddress(),
-        to,
-        subject,
-        text,
-        html,
-        attachments,
-      });
-      const accepted = Array.isArray(info.accepted) ? info.accepted.length : 0;
-      if (accepted === 0) {
-        console.error(`📧 Email rejected by SMTP server (${info.responseCode || 'no response code'}): ${info.rejected?.length ? 'recipient rejected' : 'no accepted recipient'}`);
+    if (this.mode === 'gmail-api') {
+      try {
+        const raw = this.buildGmailRawMessage({ to, subject, html, text, attachments });
+        const response = await this.gmailApi.users.messages.send({
+          userId: 'me',
+          requestBody: { raw }
+        });
+        if (!response.data?.id) {
+          console.error('📧 Gmail API send failed: response did not include a message ID');
+          return false;
+        }
+        console.log(`✉️  Gmail API accepted email for delivery: ${response.data.id}`);
+        return true;
+      } catch (error) {
+        const errorCode = error.code || error.response?.status || error.name || 'GMAIL_API_SEND_FAILED';
+        const detail = error.response?.data?.error?.message || error.message;
+        console.error(`📧 Gmail API send failed (${errorCode}): ${detail}`);
         return false;
       }
-      console.log(`✉️  SMTP accepted email for delivery: ${info.messageId}`);
-      return true;
-    } catch (error) {
-      console.error(`📧 Email Send Error (${error.code || error.name || 'SMTP_SEND_FAILED'}${error.responseCode ? `, response ${error.responseCode}` : ''}${error.command ? `, command ${error.command}` : ''}): ${error.message}`);
-      return false;
     }
+    console.error('📧 Email Send Error: Gmail API OAuth is not configured');
+    return false;
   }
 
   async sendOTP(email, otpCode) {

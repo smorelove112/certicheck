@@ -37,7 +37,7 @@ ADMIN_EMAIL=admin@certicheck.com
 
 The backend seeds three admin logins on first authentication: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. All use the default password `password`.
 
-Issuer applications, approvals, password resets, and certificate issuance send email through SMTP when the `SMTP_*` settings are configured. In local development without SMTP, messages are printed to the backend console. `/health` reports SMTP connection/authentication status without exposing secrets. Approved issuer applicants activate with the emailed 6-digit code and create their own password; generic user-account approvals may still use the administrator-issued password workflow.
+Issuer applications, approvals, password resets, and certificate issuance use the Gmail API over HTTPS. Configure `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, and `GMAIL_FROM`; the refresh token must have the `https://www.googleapis.com/auth/gmail.send` scope, and `GMAIL_REDIRECT_URI` must match the URI used to issue it. In local development without Gmail OAuth settings, messages are printed to the backend console. `/health` reports OAuth authentication status without exposing secrets. Approved issuer applicants activate with the emailed 6-digit code and create their own password; generic user-account approvals may still use the administrator-issued password workflow.
 
 ## 4. Initialize the database schema
 
