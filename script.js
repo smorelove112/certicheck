@@ -1963,7 +1963,28 @@ function initAuthPageForms(page) {
   if (page === "change-password") initChangePasswordForm();
   if (page === "forgot-password") initForgotPasswordForm();
   if (page === "verify-reset-otp") initResetPasswordForm();
-  if (page === "activate-account") initIssuerActivationForm();
+  if (page === "login") initIssuerActivationForm();
+}
+
+function showIssuerActivationOnLogin(email = '', error = '') {
+  if (currentPage !== 'login') navigate('login');
+  const signInFields = document.getElementById('loginSignInFields');
+  const activationSection = document.getElementById('loginIssuerActivation');
+  const activationToggleRow = document.getElementById('loginActivationToggleRow');
+  const loginToggleRow = document.getElementById('activationLoginToggleRow');
+  const activationEmail = document.getElementById('activationEmail');
+  const activationError = document.getElementById('activationError');
+  if (!activationSection || !signInFields) return;
+
+  signInFields.hidden = true;
+  activationSection.hidden = false;
+  activationToggleRow.hidden = true;
+  loginToggleRow.hidden = false;
+  if (activationEmail && email) activationEmail.value = email;
+  if (activationError) {
+    activationError.textContent = error;
+    activationError.style.display = error ? 'block' : 'none';
+  }
 }
 
 function initIssuerActivationForm() {
@@ -1979,6 +2000,15 @@ function initIssuerActivationForm() {
 
   if (!form || form.dataset.bound === 'true') return;
   form.dataset.bound = 'true';
+  document.getElementById('showIssuerActivation')?.addEventListener('click', () => {
+    showIssuerActivationOnLogin(document.getElementById('loginEmail')?.value.trim().toLowerCase() || '');
+  });
+  document.getElementById('backToPasswordLogin')?.addEventListener('click', () => {
+    document.getElementById('loginSignInFields').hidden = false;
+    document.getElementById('loginIssuerActivation').hidden = true;
+    document.getElementById('loginActivationToggleRow').hidden = false;
+    document.getElementById('activationLoginToggleRow').hidden = true;
+  });
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -2507,7 +2537,8 @@ document.addEventListener("DOMContentLoaded", () => {
   renderRoleLandingHome();
   const requestedPage = new URLSearchParams(window.location.search).get('page');
   if (window.location.pathname.replace(/\/+$/, '') === '/activate-account' || requestedPage === 'activate-account') {
-    navigate('activate-account');
+    navigate('login');
+    showIssuerActivationOnLogin();
   }
   const certificateId = new URLSearchParams(window.location.search).get('certificateId');
   if (certificateId) {
@@ -3358,14 +3389,7 @@ function initLoginForm() {
           if (errData && errData.code) errCode = errData.code;
         } catch (e) {}
         if (errCode === 'ISSUER_ACTIVATION_REQUIRED') {
-          const activationEmail = document.getElementById('activationEmail');
-          if (activationEmail) activationEmail.value = email;
-          navigate('activate-account');
-          const activationError = document.getElementById('activationError');
-          if (activationError) {
-            activationError.textContent = errMsg;
-            activationError.style.display = 'block';
-          }
+          showIssuerActivationOnLogin(email, errMsg);
           if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
           return;
         }
