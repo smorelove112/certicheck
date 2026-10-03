@@ -14,35 +14,73 @@ function escapeHtml(value) {
 class EmailService {
   constructor() {
     this.memoryStore = new Map();
+    this.transportVerification = { status: 'not-configured' };
     this.initTransporter();
   }
 
   initTransporter() {
-    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    const host = process.env.SMTP_HOST || process.env.EMAIL_HOST;
+    const user = process.env.SMTP_USER || process.env.EMAIL_USER;
+    const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+    const port = Number.parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT, 10) || 587;
+    const secureSetting = process.env.SMTP_SECURE ?? process.env.EMAIL_SECURE;
+    const secure = secureSetting === undefined ? port === 465 : secureSetting === 'true';
+
+    if (host && user && pass) {
       this.transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT, 10) || 587,
-        secure: process.env.SMTP_SECURE === 'true',
+        host,
+        port,
+        secure,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 20000,
         auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
+          user,
+          pass,
         },
       });
       this.mode = 'smtp';
+      this.transportVerification = { status: 'pending' };
       console.log('📧 Email Service: SMTP configured');
     } else {
       this.transporter = null;
       this.mode = process.env.NODE_ENV === 'production' ? 'disabled' : 'console';
+      this.transportVerification = { status: this.mode };
       if (this.mode === 'console') {
         console.log('📧 Email Service: Running in Development/Console Mode');
       } else {
-        console.error('📧 Email Service: SMTP credentials are required in production');
+        console.error('📧 Email Service: SMTP_HOST, SMTP_USER, and SMTP_PASS (or EMAIL_* equivalents) are required in production');
       }
     }
   }
 
   getFromAddress() {
-    return process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@certicheck.com';
+    return process.env.SMTP_FROM || process.env.EMAIL_FROM ||
+      process.env.SMTP_USER || process.env.EMAIL_USER || 'noreply@certicheck.com';
+  }
+
+  getStatus() {
+    return {
+      mode: this.mode,
+      configured: this.mode === 'smtp',
+      verification: this.transportVerification.status,
+      errorCode: this.transportVerification.errorCode || null
+    };
+  }
+
+  async verifyTransport() {
+    if (this.mode !== 'smtp') return this.getStatus();
+
+    try {
+      await this.transporter.verify();
+      this.transportVerification = { status: 'verified' };
+      console.log('📧 Email Service: SMTP connection and authentication verified');
+    } catch (error) {
+      const errorCode = error.code || error.name || 'SMTP_VERIFY_FAILED';
+      this.transportVerification = { status: 'failed', errorCode };
+      console.error(`📧 Email Service: SMTP verification failed (${errorCode}${error.responseCode ? `, response ${error.responseCode}` : ''}): ${error.message}`);
+    }
+    return this.getStatus();
   }
 
   async sendEmail({ to, subject, html, text, attachments = [] }) {
@@ -68,10 +106,15 @@ class EmailService {
         html,
         attachments,
       });
-      console.log(`✉️  Email sent to ${to}: ${info.messageId}`);
+      const accepted = Array.isArray(info.accepted) ? info.accepted.length : 0;
+      if (accepted === 0) {
+        console.error(`📧 Email rejected by SMTP server (${info.responseCode || 'no response code'}): ${info.rejected?.length ? 'recipient rejected' : 'no accepted recipient'}`);
+        return false;
+      }
+      console.log(`✉️  SMTP accepted email for delivery: ${info.messageId}`);
       return true;
     } catch (error) {
-      console.error('📧 Email Send Error:', error);
+      console.error(`📧 Email Send Error (${error.code || error.name || 'SMTP_SEND_FAILED'}${error.responseCode ? `, response ${error.responseCode}` : ''}${error.command ? `, command ${error.command}` : ''}): ${error.message}`);
       return false;
     }
   }
@@ -160,7 +203,7 @@ class EmailService {
     });
   }
 
-  // Helper method for testing in development
+  // Helper method for tests only.
   getLastSentOTP(email) {
     return this.memoryStore.get(email);
   }

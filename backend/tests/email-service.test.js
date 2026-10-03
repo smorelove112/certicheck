@@ -12,11 +12,37 @@ nodemailer.createTransport = options => ({
   options,
   async sendMail(message) {
     delivered.push(message);
-    return { messageId: `dummy-${delivered.length}` };
+    return { messageId: `dummy-${delivered.length}`, accepted: [message.to], rejected: [] };
   }
 });
 
 const emailService = require('../src/services/emailService');
+
+test('SMTP transport verifies credentials and reports only a safe status', async () => {
+  let verified = false;
+  emailService.transporter.verify = async () => {
+    verified = true;
+  };
+
+  const status = await emailService.verifyTransport();
+  assert.equal(verified, true);
+  assert.deepEqual(status, {
+    mode: 'smtp',
+    configured: true,
+    verification: 'verified',
+    errorCode: null
+  });
+
+  emailService.transporter.verify = async () => {
+    const error = new Error('Authentication failed');
+    error.code = 'EAUTH';
+    throw error;
+  };
+  const failedStatus = await emailService.verifyTransport();
+  assert.equal(failedStatus.verification, 'failed');
+  assert.equal(failedStatus.errorCode, 'EAUTH');
+  assert.equal(JSON.stringify(failedStatus).includes(process.env.SMTP_PASS), false);
+});
 
 test('onboarding and credential emails include the required details without sending outside the mock', async () => {
   assert.equal(await emailService.sendApplicationReceived({
@@ -66,4 +92,20 @@ test('onboarding and credential emails include the required details without send
   assert.match(delivered[3].subject, /verification code/i);
   assert.match(delivered[3].text, /246810/);
   assert.match(delivered[3].html, /246810/);
+});
+
+test('SMTP recipient rejection is reported as failed delivery', async () => {
+  const originalSendMail = emailService.transporter.sendMail;
+  emailService.transporter.sendMail = async () => ({
+    messageId: 'dummy-rejected',
+    accepted: [],
+    rejected: ['grace@example.edu'],
+    responseCode: 550
+  });
+
+  try {
+    assert.equal(await emailService.sendOTP('grace@example.edu', '135790'), false);
+  } finally {
+    emailService.transporter.sendMail = originalSendMail;
+  }
 });

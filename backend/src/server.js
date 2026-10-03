@@ -6,6 +6,7 @@ const bodyParser = require('body-parser');
 const https = require('https');
 const pool = require('./db/connection');
 const { initializeDatabase } = require('./db/init');
+const emailService = require('./services/emailService');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -67,7 +68,8 @@ app.get('/health', async (req, res) => {
     res.json({
       status: 'ok',
       timestamp: result.rows[0].now,
-      message: 'Certicheck backend is running'
+      message: 'Certicheck backend is running',
+      email: emailService.getStatus()
     });
   } catch (err) {
     res.status(200).json({
@@ -222,6 +224,7 @@ async function startServer() {
     app.listen(PORT, HOST, () => {
       console.log(`✓ Certicheck backend running on http://${HOST}:${PORT}`);
       console.log(`✓ Health check: http://${HOST}:${PORT}/health`);
+      void emailService.verifyTransport();
     });
   } catch (err) {
     console.error('Failed to start backend:', err.message || err);
