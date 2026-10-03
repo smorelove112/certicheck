@@ -1970,10 +1970,12 @@ function initIssuerActivationForm() {
   const form = document.getElementById('issuerActivationForm');
   const emailEl = document.getElementById('activationEmail');
   const codeEl = document.getElementById('activationCode');
+  const passwordFields = document.getElementById('activationPasswordFields');
   const passwordEl = document.getElementById('activationPassword');
   const confirmEl = document.getElementById('activationConfirmPassword');
   const errorEl = document.getElementById('activationError');
   const button = document.getElementById('issuerActivationBtn');
+  let activationCodeVerified = false;
 
   if (!form || form.dataset.bound === 'true') return;
   form.dataset.bound = 'true';
@@ -1983,6 +1985,32 @@ function initIssuerActivationForm() {
     errorEl.style.display = 'none';
     const email = emailEl.value.trim().toLowerCase();
     const activationCode = codeEl.value.trim();
+    if (!activationCodeVerified) {
+      await withButtonLoading(button, async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/auth/verify-issuer-activation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, activationCode })
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || 'Unable to verify activation code');
+
+          activationCodeVerified = true;
+          emailEl.readOnly = true;
+          codeEl.readOnly = true;
+          passwordFields.hidden = false;
+          passwordEl.required = true;
+          confirmEl.required = true;
+          button.textContent = 'Create password';
+        } catch (error) {
+          errorEl.textContent = error.message || 'Unable to verify activation code';
+          errorEl.style.display = 'block';
+        }
+      }, 'Verifying code...');
+      return;
+    }
+
     const password = passwordEl.value;
     const confirmPassword = confirmEl.value;
     if (password !== confirmPassword) {
@@ -2018,7 +2046,7 @@ function initIssuerActivationForm() {
         errorEl.textContent = error.message || 'Unable to activate issuer account';
         errorEl.style.display = 'block';
       }
-    }, 'Activating account...');
+    }, 'Creating password...');
   });
 }
 
@@ -3328,6 +3356,18 @@ function initLoginForm() {
           if (errData && errData.error) errMsg = errData.error;
           if (errData && errData.code) errCode = errData.code;
         } catch (e) {}
+        if (errCode === 'ISSUER_ACTIVATION_REQUIRED') {
+          const activationEmail = document.getElementById('activationEmail');
+          if (activationEmail) activationEmail.value = email;
+          navigate('activate-account');
+          const activationError = document.getElementById('activationError');
+          if (activationError) {
+            activationError.textContent = errMsg;
+            activationError.style.display = 'block';
+          }
+          if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
+          return;
+        }
         const noticeTitles = {
           EMAIL_NOT_REGISTERED: 'Email not registered',
           APPLICATION_PENDING: 'Application pending',

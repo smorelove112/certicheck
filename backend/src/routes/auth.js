@@ -290,6 +290,18 @@ router.post('/login', async (req, res) => {
 
     if (!user) {
       const registeredUser = await User.findByEmail(email);
+      if (
+        registeredUser?.user_type === 'issuer' &&
+        !registeredUser.is_active &&
+        registeredUser.activation_code_hash &&
+        new Date(registeredUser.activation_expires_at).getTime() > Date.now()
+      ) {
+        await logAudit(registeredUser.id, 'LOGIN', 'user', registeredUser.id, 'failed', 'Issuer activation required');
+        return res.status(403).json({
+          code: 'ISSUER_ACTIVATION_REQUIRED',
+          error: 'Your issuer account is approved. Verify the activation code sent by email, then create your password.'
+        });
+      }
       if (!registeredUser) {
         const application = await Application.findApplicationByEmail(email);
         const applicationNotice = getLoginApplicationNotice(application);
@@ -314,7 +326,7 @@ router.post('/login', async (req, res) => {
         await logAudit(user.id, 'LOGIN', 'user', user.id, 'failed', 'Issuer activation required');
         return res.status(403).json({
           code: 'ISSUER_ACTIVATION_REQUIRED',
-          error: 'Your issuer account is approved. Use the activation code sent by email to create your password.'
+          error: 'Your issuer account is approved. Verify the activation code sent by email, then create your password.'
         });
       }
       const application = await Application.findApplicationByEmail(email);
@@ -777,6 +789,34 @@ router.post('/activate-issuer', issuerActivationRateLimiter, async (req, res) =>
   }
 });
 
+router.post('/verify-issuer-activation', issuerActivationRateLimiter, async (req, res) => {
+  try {
+    const { email, activationCode } = req.body;
+    if (typeof email !== 'string' || typeof activationCode !== 'string' || !email || !activationCode) {
+      return res.status(400).json({ error: 'Email and activation code are required' });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    if (!isValidEmail(normalizedEmail) || !/^\d{6}$/.test(activationCode)) {
+      return res.status(400).json({ error: 'Enter a valid email address and 6-digit activation code' });
+    }
+
+    const codeHash = crypto
+      .createHmac('sha256', process.env.JWT_SECRET || 'dev_secret_key')
+      .update(activationCode)
+      .digest('hex');
+    const valid = await User.verifyIssuerActivation(normalizedEmail, codeHash);
+    if (!valid) {
+      return res.status(400).json({ error: 'Activation code is invalid, expired, or the account is not approved' });
+    }
+
+    return res.json({ success: true, message: 'Activation code verified. Create your password.' });
+  } catch (err) {
+    console.error('Issuer activation code verification error:', err);
+    return res.status(500).json({ error: 'Unable to verify activation code' });
+  }
+});
+
 router.post('/forgot-password', async (req, res) => {
   let failureStage = 'validation';
   try {
@@ -793,7 +833,7 @@ router.post('/forgot-password', async (req, res) => {
     failureStage = 'account-lookup';
     const user = await User.findByEmail(normalizedEmail);
     if (!user) {
-      return res.json({ success: true, message: 'If an account exists, we sent a code.' });
+      return res.status(404).json({ error: 'No account is registered with this email address.' });
     }
 
     failureStage = 'otp-creation';

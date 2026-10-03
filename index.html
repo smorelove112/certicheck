@@ -433,8 +433,8 @@
   <div id="page-activate-account" class="page">
     <div class="page-wrap" style="max-width:500px">
       <div class="page-header">
-        <h1 class="page-title">Activate issuer account</h1>
-        <p class="page-desc">Enter the 6-digit code from your approval email and choose a password. Codes expire after 15 minutes.</p>
+        <h1 class="page-title">Verify issuer account</h1>
+        <p class="page-desc">Enter the email address from your application and the 6-digit code from your approval email. Codes expire after 15 minutes.</p>
       </div>
 
       <form class="form-card" id="issuerActivationForm">
@@ -446,16 +446,18 @@
           <label class="field-label" for="activationCode">6-digit activation code</label>
           <input class="field-input" id="activationCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required/>
         </div>
-        <div class="field">
-          <label class="field-label" for="activationPassword">Create password</label>
-          <input class="field-input" id="activationPassword" type="password" autocomplete="new-password" minlength="8" required/>
-        </div>
-        <div class="field">
-          <label class="field-label" for="activationConfirmPassword">Confirm password</label>
-          <input class="field-input" id="activationConfirmPassword" type="password" autocomplete="new-password" minlength="8" required/>
+        <div id="activationPasswordFields" hidden>
+          <div class="field">
+            <label class="field-label" for="activationPassword">Create password</label>
+            <input class="field-input" id="activationPassword" type="password" autocomplete="new-password" minlength="8"/>
+          </div>
+          <div class="field">
+            <label class="field-label" for="activationConfirmPassword">Confirm password</label>
+            <input class="field-input" id="activationConfirmPassword" type="password" autocomplete="new-password" minlength="8"/>
+          </div>
         </div>
         <div id="activationError" role="alert" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
-        <button class="btn-primary" id="issuerActivationBtn" type="submit" style="width:100%">Activate account</button>
+        <button class="btn-primary" id="issuerActivationBtn" type="submit" style="width:100%">Verify code</button>
       </form>
     </div>
   </div>

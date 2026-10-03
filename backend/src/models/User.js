@@ -154,6 +154,23 @@ class User {
     );
     return result.rows[0] || null;
   }
+
+  static async verifyIssuerActivation(email, activationCodeHash) {
+    const normalizedEmail = this.normalizeEmail(email);
+    const result = await pool.query(
+      `SELECT users.id
+       FROM users
+       JOIN issuer_profiles ON issuer_profiles.user_id = users.id
+       WHERE users.email = $1
+         AND users.user_type = 'issuer'
+         AND users.activation_code_hash = $2
+         AND users.activation_expires_at > NOW()
+         AND issuer_profiles.status = 'approved'
+       LIMIT 1`,
+      [normalizedEmail, activationCodeHash]
+    );
+    return result.rows.length > 0;
+  }
 }
 
 module.exports = User;
