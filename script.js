@@ -724,7 +724,6 @@ async function issueCertificateWithPhantomWallet(payload, token) {
       systemProgram: SystemProgram.programId
     })
     .rpc();
-  await connection.confirmTransaction(signature, 'confirmed');
 
   const recordResponse = await fetch(`${API_BASE_URL}/certificates/issue-client-signed`, {
     method: 'POST',
@@ -1387,15 +1386,28 @@ function renderRoleLandingHome() {
   const user = currentUser || getStoredUser();
   if (!roleHome || !hero) return;
 
-  if (
-    !user ||
-    (user.user_type !== 'issuer' && user.user_type !== 'admin') ||
-    (user.user_type === 'issuer' && !isVerifiedIssuer(user))
-  ) {
+  if (!user || (user.user_type !== 'issuer' && user.user_type !== 'admin')) {
     roleHome.style.display = 'none';
     hero.style.display = 'block';
     if (features) features.style.display = 'block';
     if (footer && currentPage === 'home') footer.style.display = '';
+    return;
+  }
+
+  // If user is issuer but pending or rejected, show that status immediately
+  if (user.user_type === 'issuer' && !isVerifiedIssuer(user)) {
+    hero.style.display = 'none';
+    roleHome.style.display = 'block';
+    if (features) features.style.display = 'none';
+    if (footer) footer.style.display = 'none';
+
+    document.getElementById('roleHomeBadge').textContent = 'Issuer Status';
+    document.getElementById('roleHomeTitle').textContent = user.issuer_status === 'rejected' ? 'Application Rejected' : 'Application Pending';
+    document.getElementById('roleHomeMeta').textContent = user.email || '';
+    document.getElementById('roleHomeStats').innerHTML = '';
+    
+    document.getElementById('roleHomeSystem').innerHTML = '';
+    document.getElementById('roleHomeActions').innerHTML = `<div class="alert alert-info" style="margin-top:20px;">${user.issuer_status === 'rejected' ? 'Your application to become an issuer was rejected. Please contact support.' : 'Your application has been submitted and is currently pending review by an admin. You will be able to issue certificates once approved.'}</div>`;
     return;
   }
 
@@ -3471,7 +3483,7 @@ async function submitApplyForm() {
     clearPendingApplicationDraft();
     const hidden = document.getElementById('contactEmail');
     if (hidden) hidden.value = email;
-    showSuccessMessage(email);
+    if (currentUser) { currentUser.issuer_status = 'pending'; setStoredUser(currentUser); if (currentPage === 'home') renderRoleLandingHome(); } showSuccessMessage(email);
   } catch (error) {
     console.error('Error submitting application:', error);
     saveApplicationLocally(applicationData);
@@ -3577,3 +3589,56 @@ function renderResources() {
     </div>
   `).join("");
 }
+
+// Background polling for real-time updates
+setInterval(() => {
+  if (document.hidden) return;
+  const token = getAuthToken();
+  if (!token) return;
+
+  if (currentPage === 'issuer' && document.getElementById('issuerFormWrap')?.style.display !== 'none') {
+    // Poll issuer certificates silently
+    fetch(`${API_BASE_URL}/certificates/my-issued`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(res => res.json()).then(data => {
+      if (data.success && Array.isArray(data.certificates)) {
+        const arr = data.certificates.map(entry => ({
+          certificateId: entry.certificate_id,
+          holderName: entry.holder_name || '',
+          holderEmail: entry.holder_email || '',
+          certificateType: entry.certificate_type,
+          ipfsCid: entry.ipfs_cid || entry.blockchain_hash || '',
+          ipfsUri: entry.ipfs_uri || '',
+          ipfsSource: entry.ipfs_source || 'fallback',
+          blockchainTransactionId: entry.blockchain_transaction_id || '',
+          verificationStatus: entry.status || entry.verification_status || 'valid',
+          issuedAt: entry.issued_at || entry.created_at
+        }));
+        
+        // Only re-render if count changes or status changes (simple check)
+        const currentArr = getIssuerIssuedCertificates();
+        if (arr.length !== currentArr.length || JSON.stringify(arr) !== JSON.stringify(currentArr)) {
+          setIssuerIssuedCertificates(arr, currentUser || getStoredUser());
+          // Render it directly
+          if (typeof renderIssuerCertificatesList === 'function') {
+             renderIssuerCertificatesList();
+          }
+        }
+      }
+    }).catch(() => {});
+  } else if (currentPage === 'home') {
+    // Poll user profile to see if their application status changed
+    fetch(`${API_BASE_URL}/auth/profile`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(res => res.json()).then(data => {
+       if (data.success && data.user) {
+          const stored = getStoredUser();
+          if (stored && (stored.issuer_status !== data.user.issuer_status)) {
+             setStoredUser(data.user);
+             currentUser = data.user;
+             renderRoleLandingHome();
+          }
+       }
+    }).catch(() => {});
+  }
+}, 5000);

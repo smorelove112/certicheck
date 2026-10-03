@@ -1,6 +1,5 @@
 const express = require('express');
 const Application = require('../models/Application');
-const User = require('../models/User');
 const pool = require('../db/connection');
 const { verifyToken, verifyAdmin, verifyAdminToken, logAudit } = require('../middleware/auth');
 const { isValidEmail } = require('../utils/validation');
@@ -52,31 +51,31 @@ router.post('/submit', async (req, res) => {
     const generatedEmail = applicantEmail;
 
     let userId = req.user?.id || null;
-    if (!userId) {
-      if (process.env.DEMO_MODE === 'true') {
-        userId = 1;
-      } else {
-        const existingUser = await User.findByEmail(applicantEmail);
-        if (existingUser) {
-          userId = existingUser.id;
-        } else {
-          const nameParts = String(contactName).trim().split(/\s+/).filter(Boolean);
-          const firstName = nameParts.shift() || 'Issuer';
-          const lastName = nameParts.join(' ') || 'User';
-          const applicant = await User.create(applicantEmail, 'password', firstName, lastName, 'issuer');
-          userId = applicant.id;
-        }
-      }
-    }
-
-    const app = await Application.create(
-      userId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet
-    );
+    if (!userId && process.env.DEMO_MODE === 'true') userId = 1;
+    const nameParts = String(contactName).trim().split(/\s+/).filter(Boolean);
+    const app = await Application.create({
+      issuerId: process.env.DEMO_MODE === 'true' ? userId : req.user?.id || null,
+      applicantEmail,
+      applicantFirstName: nameParts.shift() || 'Issuer',
+      applicantLastName: nameParts.join(' ') || 'User',
+      orgName,
+      orgType,
+      website,
+      contactName,
+      contactEmail,
+      generatedEmail,
+      contactRole,
+      volume,
+      useCase,
+      wallet
+    });
+    const { applicant_user_id: applicantUserId, ...application } = app;
+    userId = userId || applicantUserId;
 
     res.status(201).json({
       success: true,
       message: 'Application submitted successfully',
-      application: { ...app, generated_email: app.generated_email || generatedEmail }
+      application: { ...application, generated_email: application.generated_email || generatedEmail }
     });
 
     setImmediate(() => {

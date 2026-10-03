@@ -676,7 +676,7 @@ async function handleBulkAction(action, button) {
     const failed = decisions.flatMap(decision => decision.status === 'rejected' ? [decision.reason] : []);
 
     successful.forEach(({ id, application }) => applyApplicationDecisionLocally(action, id, application));
-    if (successful.length) void loadAdminDashboard();
+    if (successful.length) { renderAdminDashboard(); void loadAdminDashboard(); }
 
     if (failed.length) {
       const summary = `${successful.length} of ${selected.length} applications ${action === 'approve' ? 'approved' : 'rejected'}. ${failed.length} failed: ${failed[0].message || 'Request failed.'}`;
@@ -880,6 +880,7 @@ async function handleApplicationAction(action, id, button) {
       const result = await requestJson(endpoint, { method: "PUT" });
       if (result.success !== true) throw new Error(result.error || 'The application update was not confirmed.');
       applyApplicationDecisionLocally(action, id, result.application);
+      renderAdminDashboard();
       const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application rejected and moved to rejected queue.';
       showAdminToast(actionMessage, action === 'approve' ? 'success' : 'danger');
       void loadAdminDashboard();
@@ -1229,3 +1230,40 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
 });
+
+
+// Background polling for real-time updates
+setInterval(() => {
+  if (!document.hidden && getAdminToken() && !adminState.isLoading) {
+    requestJson("/admin/dashboard").then(dashboardData => {
+      if (!dashboardData || !dashboardData.pendingApplications) return;
+      
+      const prevPending = adminState.pendingApps?.length || 0;
+      const prevApproved = adminState.approvedApps?.length || 0;
+      const prevRejected = adminState.rejectedApps?.length || 0;
+      const prevChecks = adminState.checks?.length || 0;
+      const prevRevoked = adminState.revoked?.length || 0;
+
+      const newPending = dashboardData.pendingApplications || dashboardData.pendingApps || dashboardData.pending || [];
+      const newApproved = dashboardData.approvedApplications || dashboardData.approvedApps || dashboardData.approved || [];
+      const newRejected = dashboardData.rejectedApplications || dashboardData.rejectedApps || dashboardData.rejected || [];
+      
+      const pendingChanged = newPending.length !== prevPending;
+      const approvedChanged = newApproved.length !== prevApproved;
+      const rejectedChanged = newRejected.length !== prevRejected;
+      const checksChanged = (dashboardData.history?.length || 0) !== prevChecks;
+      const revokedChanged = (dashboardData.revoked?.length || 0) !== prevRevoked;
+
+      if (pendingChanged || approvedChanged || rejectedChanged || checksChanged || revokedChanged) {
+        adminState.stats = dashboardData.stats || adminState.stats;
+        adminState.pendingApps = newPending;
+        adminState.approvedApps = newApproved;
+        adminState.rejectedApps = newRejected;
+        adminState.checks = dashboardData.history || adminState.checks;
+        adminState.revoked = dashboardData.revoked || adminState.revoked;
+        
+        renderAdminDashboard();
+      }
+    }).catch(() => {});
+  }
+}, 5000);

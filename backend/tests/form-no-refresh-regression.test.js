@@ -103,6 +103,12 @@ test('issuer wallet is optional and no-wallet issuance is identified as off-chai
   assert.doesNotMatch(scriptJs, /Connect the approved issuer wallet before issuing on-chain/);
 });
 
+test('on-chain issuance does not wait for a redundant confirmation after Anchor rpc resolves', () => {
+  const issueFunction = scriptJs.match(/async function issueCertificateWithPhantomWallet\(payload, token\) \{[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(issueFunction, /\.rpc\(\)/);
+  assert.doesNotMatch(issueFunction, /connection\.confirmTransaction/);
+});
+
 test('successful certificate issuance opens a celebration dialog', () => {
   assert.match(indexHtml, /<dialog id="issuanceSuccessDialog" class="issuance-success-dialog"/);
   assert.match(indexHtml, /id="issuanceSuccessContent"/);

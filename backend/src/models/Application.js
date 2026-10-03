@@ -3,7 +3,22 @@ const User = require('./User');
 const demoAppStore = require('../services/demoApplicationStore');
 
 class Application {
-  static async create(issuerId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet) {
+  static async create({
+    issuerId,
+    applicantEmail,
+    applicantFirstName,
+    applicantLastName,
+    orgName,
+    orgType,
+    website,
+    contactName,
+    contactEmail,
+    generatedEmail,
+    contactRole,
+    volume,
+    useCase,
+    wallet
+  }) {
     if (process.env.DEMO_MODE === 'true') {
       return demoAppStore.createApplication({
         issuerId,
@@ -20,36 +35,64 @@ class Application {
       });
     }
 
-    const existingProfile = await pool.query(
-      'SELECT id FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
-      [issuerId]
-    );
-
-    let issuerProfileId;
-    if (existingProfile.rows[0]) {
-      issuerProfileId = existingProfile.rows[0].id;
-      await pool.query(
-        `UPDATE issuer_profiles
-         SET organization_name = COALESCE($2, organization_name), organization_type = COALESCE($3, organization_type), website = COALESCE($4, website), contact_name = COALESCE($5, contact_name), contact_role = COALESCE($6, contact_role), certificate_volume = COALESCE($7, certificate_volume), use_case = COALESCE($8, use_case), wallet_address = COALESCE($9, wallet_address), status = 'pending', updated_at = NOW()
-         WHERE id = $1`,
-        [issuerProfileId, orgName, orgType, website, contactName, contactRole, volume, useCase, wallet]
-      );
-    } else {
-      const createdProfile = await pool.query(
-        `INSERT INTO issuer_profiles (user_id, organization_name, organization_type, website, contact_name, contact_role, certificate_volume, use_case, wallet_address, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
-         RETURNING id`,
-        [issuerId, orgName, orgType, website, contactName, contactRole, volume, useCase, wallet]
-      );
-      issuerProfileId = createdProfile.rows[0].id;
-    }
-
+    const passwordHash = issuerId ? null : await User.getDefaultIssuerPasswordHash();
     const result = await pool.query(
-      `INSERT INTO pending_applications 
-      (issuer_id, organization_name, organization_type, organization_website, contact_name, contact_email, generated_email, contact_role, certificate_volume, use_case, wallet_address)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING id, organization_name, contact_email, generated_email, status, submitted_at`,
-          [issuerProfileId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet]
+      `WITH applicant_user AS (
+         INSERT INTO users (email, password_hash, first_name, last_name, user_type, is_active, must_change_password)
+         SELECT $2, $3, $4, $5, 'issuer', FALSE, TRUE
+         WHERE $1::INTEGER IS NULL
+         ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+         RETURNING id
+       ),
+       resolved_user AS (
+         SELECT id FROM applicant_user
+         UNION ALL
+         SELECT $1::INTEGER WHERE $1::INTEGER IS NOT NULL
+       ),
+       issuer_profile AS (
+         INSERT INTO issuer_profiles
+           (user_id, organization_name, organization_type, website, contact_name, contact_role, certificate_volume, use_case, wallet_address, status)
+         SELECT id, $6, $7, $8, $9, $10, $11, $12, $13, 'pending'
+         FROM resolved_user
+         ON CONFLICT (user_id) DO UPDATE
+         SET organization_name = COALESCE(EXCLUDED.organization_name, issuer_profiles.organization_name),
+             organization_type = COALESCE(EXCLUDED.organization_type, issuer_profiles.organization_type),
+             website = COALESCE(EXCLUDED.website, issuer_profiles.website),
+             contact_name = COALESCE(EXCLUDED.contact_name, issuer_profiles.contact_name),
+             contact_role = COALESCE(EXCLUDED.contact_role, issuer_profiles.contact_role),
+             certificate_volume = COALESCE(EXCLUDED.certificate_volume, issuer_profiles.certificate_volume),
+             use_case = COALESCE(EXCLUDED.use_case, issuer_profiles.use_case),
+             wallet_address = COALESCE(EXCLUDED.wallet_address, issuer_profiles.wallet_address),
+             status = 'pending',
+             updated_at = NOW()
+         RETURNING id
+       ),
+       pending_application AS (
+         INSERT INTO pending_applications
+           (issuer_id, organization_name, organization_type, organization_website, contact_name, contact_email, generated_email, contact_role, certificate_volume, use_case, wallet_address)
+         SELECT id, $6, $7, $8, $9, $14, $15, $10, $11, $12, $13
+         FROM issuer_profile
+         RETURNING id, organization_name, contact_email, generated_email, status, submitted_at
+       )
+       SELECT pending_application.*, resolved_user.id AS applicant_user_id
+       FROM pending_application CROSS JOIN resolved_user`,
+      [
+        issuerId || null,
+        applicantEmail,
+        passwordHash,
+        applicantFirstName,
+        applicantLastName,
+        orgName,
+        orgType,
+        website,
+        contactName,
+        contactRole,
+        volume,
+        useCase,
+        wallet,
+        contactEmail,
+        generatedEmail
+      ]
     );
     return result.rows[0];
   }

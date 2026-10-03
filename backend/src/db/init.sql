@@ -163,7 +163,16 @@ CREATE TABLE IF NOT EXISTS revoked_certificates (
 );
 
 -- OTP-based email signup and password recovery have been removed.
-DROP TABLE IF EXISTS otp_verification;
+CREATE TABLE IF NOT EXISTS otp_verification (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) NOT NULL,
+  otp_code VARCHAR(10) NOT NULL,
+  purpose VARCHAR(50) DEFAULT 'reset_password',
+  expires_at TIMESTAMP NOT NULL,
+  is_used BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_otp_email ON otp_verification(email, is_used, expires_at);
 
 -- ── AUDIT LOG TABLE ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_log (
