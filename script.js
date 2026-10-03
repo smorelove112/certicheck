@@ -1996,6 +1996,8 @@ function initIssuerActivationForm() {
   const confirmEl = document.getElementById('activationConfirmPassword');
   const errorEl = document.getElementById('activationError');
   const button = document.getElementById('issuerActivationBtn');
+  const resendButton = document.getElementById('resendActivationCode');
+  const resendMessage = document.getElementById('activationResendMessage');
   let activationCodeVerified = false;
 
   if (!form || form.dataset.bound === 'true') return;
@@ -2008,6 +2010,47 @@ function initIssuerActivationForm() {
     document.getElementById('loginIssuerActivation').hidden = true;
     document.getElementById('loginActivationToggleRow').hidden = false;
     document.getElementById('activationLoginToggleRow').hidden = true;
+  });
+  resendButton?.addEventListener('click', async () => {
+    errorEl.style.display = 'none';
+    resendMessage.style.display = 'none';
+    const email = emailEl.value.trim().toLowerCase();
+    if (!emailEl.checkValidity()) {
+      errorEl.textContent = 'Enter a valid email address before requesting a new code.';
+      errorEl.style.display = 'block';
+      emailEl.focus();
+      return;
+    }
+
+    await withButtonLoading(resendButton, async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/resend-issuer-activation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Unable to resend activation code');
+
+        activationCodeVerified = false;
+        codeEl.value = '';
+        codeEl.readOnly = false;
+        emailEl.readOnly = false;
+        passwordFields.hidden = true;
+        passwordEl.required = false;
+        confirmEl.required = false;
+        passwordEl.value = '';
+        confirmEl.value = '';
+        button.textContent = 'Verify code';
+        resendMessage.textContent = data.message || 'A new activation code has been sent to your email.';
+        resendMessage.style.color = 'var(--text-secondary)';
+        resendMessage.style.display = 'block';
+      } catch (error) {
+        resendMessage.textContent = error.message || 'Unable to resend activation code';
+        resendMessage.style.color = 'var(--red)';
+        resendMessage.style.display = 'block';
+      }
+    }, 'Sending...');
   });
 
   form.addEventListener('submit', async (event) => {

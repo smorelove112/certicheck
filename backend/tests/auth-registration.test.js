@@ -15,10 +15,12 @@ const originalUpdatePassword = User.updatePassword;
 const originalActivateIssuer = User.activateIssuer;
 const originalVerifyPassword = User.verifyPassword;
 const originalVerifyIssuerActivation = User.verifyIssuerActivation;
+const originalRenewIssuerActivation = User.renewIssuerActivation;
 const originalOtpCreate = OTP.create;
 const originalOtpVerify = OTP.verify;
 const originalOtpConsume = OTP.consume;
 const originalSendOtp = emailService.sendOTP;
+const originalSendApplicationApproval = emailService.sendApplicationApproval;
 let server;
 let createCalls = 0;
 
@@ -56,10 +58,12 @@ test.after(async () => {
   User.activateIssuer = originalActivateIssuer;
   User.verifyPassword = originalVerifyPassword;
   User.verifyIssuerActivation = originalVerifyIssuerActivation;
+  User.renewIssuerActivation = originalRenewIssuerActivation;
   OTP.create = originalOtpCreate;
   OTP.verify = originalOtpVerify;
   OTP.consume = originalOtpConsume;
   emailService.sendOTP = originalSendOtp;
+  emailService.sendApplicationApproval = originalSendApplicationApproval;
 });
 
 async function post(path, body) {
@@ -154,6 +158,41 @@ test('activation code must match the email and approved account before password 
     activationCode: '654321'
   });
   assert.equal(invalidResponse.status, 400);
+});
+
+test('approved issuer can request a fresh activation code by email', async () => {
+  let renewal;
+  let sentEmail;
+  User.renewIssuerActivation = async (email, activationCodeHash, expiresAt) => {
+    renewal = { email, activationCodeHash, expiresAt };
+    return {
+      id: 42,
+      email,
+      first_name: 'Ada',
+      last_name: 'Lovelace',
+      organization_name: 'Analytical Engines'
+    };
+  };
+  emailService.sendApplicationApproval = async message => {
+    sentEmail = message;
+    return true;
+  };
+
+  const response = await post('/resend-issuer-activation', { email: ' Ada@Example.com ' });
+  const data = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(data));
+  assert.equal(renewal.email, 'ada@example.com');
+  assert.match(renewal.activationCodeHash, /^[a-f0-9]{64}$/);
+  assert.ok(renewal.expiresAt.getTime() > Date.now());
+  assert.equal(sentEmail.to, 'ada@example.com');
+  assert.equal(sentEmail.contactName, 'Ada Lovelace');
+  assert.equal(sentEmail.organizationName, 'Analytical Engines');
+  assert.match(sentEmail.activationCode, /^\d{6}$/);
+
+  User.renewIssuerActivation = async () => null;
+  const unavailableResponse = await post('/resend-issuer-activation', { email: 'unknown@example.com' });
+  assert.equal(unavailableResponse.status, 404);
 });
 
 test('forgot password explicitly reports when an email is not registered', async () => {

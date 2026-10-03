@@ -171,6 +171,28 @@ class User {
     );
     return result.rows.length > 0;
   }
+
+  static async renewIssuerActivation(email, activationCodeHash, expiresAt) {
+    const normalizedEmail = this.normalizeEmail(email);
+    const result = await pool.query(
+      `UPDATE users
+       SET activation_code_hash = $2,
+           activation_expires_at = $3,
+           updated_at = NOW()
+       WHERE email = $1
+         AND user_type = 'issuer'
+         AND is_active = FALSE
+         AND EXISTS (
+           SELECT 1 FROM issuer_profiles
+           WHERE issuer_profiles.user_id = users.id
+             AND issuer_profiles.status = 'approved'
+         )
+       RETURNING id, email, first_name, last_name,
+         (SELECT organization_name FROM issuer_profiles WHERE user_id = users.id LIMIT 1) AS organization_name`,
+      [normalizedEmail, activationCodeHash, expiresAt]
+    );
+    return result.rows[0] || null;
+  }
 }
 
 module.exports = User;

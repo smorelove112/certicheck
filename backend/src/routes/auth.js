@@ -817,6 +817,49 @@ router.post('/verify-issuer-activation', issuerActivationRateLimiter, async (req
   }
 });
 
+router.post('/resend-issuer-activation', issuerActivationRateLimiter, async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (typeof email !== 'string' || !email.trim()) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ error: 'Enter a valid email address' });
+    }
+
+    const activationCode = String(crypto.randomInt(100000, 1000000));
+    const activationCodeHash = crypto
+      .createHmac('sha256', process.env.JWT_SECRET || 'dev_secret_key')
+      .update(activationCode)
+      .digest('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    const user = await User.renewIssuerActivation(normalizedEmail, activationCodeHash, expiresAt);
+    if (!user) {
+      return res.status(404).json({ error: 'No approved issuer account is available for activation with this email.' });
+    }
+
+    const frontendUrl = String(process.env.FRONTEND_URL || 'https://certicheck-psi.vercel.app').replace(/\/+$/, '');
+    const sent = await emailService.sendApplicationApproval({
+      to: user.email,
+      contactName: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
+      organizationName: user.organization_name || 'your organization',
+      activationCode,
+      activationUrl: `${frontendUrl}/activate-account`
+    });
+    if (!sent) {
+      console.error(`Issuer activation resend email was not delivered for user ${user.id}`);
+      return res.status(503).json({ error: 'Unable to send a new activation code right now.' });
+    }
+
+    return res.json({ success: true, message: 'A new activation code has been sent to your email.' });
+  } catch (err) {
+    console.error('Issuer activation resend failed:', err);
+    return res.status(500).json({ error: 'Unable to resend activation code' });
+  }
+});
+
 router.post('/forgot-password', async (req, res) => {
   let failureStage = 'validation';
   try {

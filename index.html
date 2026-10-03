@@ -411,7 +411,6 @@
           <button class="btn-primary" id="loginBtn" style="width:100%">Login</button>
         </div>
         <section id="loginIssuerActivation">
-        <section id="loginIssuerActivation">
           <h2 class="login-section-title">Issuer account setup</h2>
           <form id="issuerActivationForm">
             <div class="field">
@@ -419,9 +418,11 @@
               <input class="field-input" id="activationEmail" type="email" autocomplete="email" required/>
             </div>
             <div class="field">
-              <label class="field-label" for="activationCode">6-digit activation code</label>
+              <label class="field-label" for="activationCode">Activation code</label>
               <input class="field-input" id="activationCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required/>
             </div>
+            <button class="btn-ghost" id="resendActivationCode" type="button" style="background:none;border:none;padding:0;text-decoration:underline;cursor:pointer">Resend activation code</button>
+            <div id="activationResendMessage" role="status" style="font-size:13px;margin:10px 0;display:none;"></div>
             <div id="activationPasswordFields" hidden>
               <div class="field">
                 <label class="field-label" for="activationPassword">Create password</label>
@@ -813,6 +814,6 @@
     </div>
   </footer>
 
-  <script src="script.js?v=20261003-login-issuer-activation"></script>
+  <script src="script.js?v=20261003-login-activation-resend"></script>
 </body>
 </html>

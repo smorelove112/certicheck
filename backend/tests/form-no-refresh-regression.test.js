@@ -62,7 +62,7 @@ test('failed application submissions show an error instead of a false success st
 test('static localhost previews use the deployed API instead of an unavailable localhost backend', () => {
   assert.match(scriptJs, /const localApiOrigin = \["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)\s*&& \["3000", "5000"\]\.includes\(window\.location\.port\)\s*\?\s*window\.location\.origin\s*:\s*null;/);
   assert.match(scriptJs, /"https:\/\/certicheck-backend-8hu3\.onrender\.com\/api"/);
-  assert.match(indexHtml, /script\.js\?v=20261003-login-issuer-activation/);
+  assert.match(indexHtml, /script\.js\?v=20261003-login-activation-resend/);
 });
 
 test('login page includes the approved issuer activation flow', () => {
@@ -71,11 +71,13 @@ test('login page includes the approved issuer activation flow', () => {
   assert.match(indexHtml, /class="login-section-title">Issuer account setup/);
   assert.match(indexHtml, /id="loginSignInFields" hidden/);
   assert.match(indexHtml, /id="issuerActivationForm"/);
+  assert.match(indexHtml, /<label class="field-label" for="activationCode">Activation code<\/label>/);
   assert.match(indexHtml, /id="activationCode"[^>]*pattern="\[0-9\]\{6\}"/);
-  assert.match(indexHtml, /id="showIssuerActivation"/);
+  assert.match(indexHtml, /id="resendActivationCode"/);
   assert.match(scriptJs, /function initIssuerActivationForm\(\)/);
   assert.match(scriptJs, /\/auth\/activate-issuer/);
   assert.match(scriptJs, /\/auth\/verify-issuer-activation/);
+  assert.match(scriptJs, /\/auth\/resend-issuer-activation/);
   assert.match(scriptJs, /page === "login"[\s\S]*?initIssuerActivationForm\(\)/);
   assert.match(scriptJs, /ISSUER_ACTIVATION_REQUIRED/);
   assert.match(scriptJs, /showIssuerActivationOnLogin\(email, errMsg\)/);
