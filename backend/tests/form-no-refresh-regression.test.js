@@ -39,7 +39,15 @@ test('application form buttons do not submit the page', () => {
 test('application confirmation does not show an auto-generated CertiCheck email', () => {
   assert.doesNotMatch(indexHtml, /generatedEmailCard|Your CertiCheck email/);
   assert.doesNotMatch(scriptJs, /generateCertiCheckEmail|generatedEmailCard/);
-  assert.match(scriptJs, /showSuccessMessage\(email, data\.notification\?\.emailSent !== false\)/);
+  assert.match(scriptJs, /showSuccessMessage\(data\.notification\?\.emailSent !== false\)/);
+  assert.doesNotMatch(scriptJs, /<strong>Official contact:<\/strong>/);
+});
+
+test('verification hero and result controls follow the active theme', () => {
+  assert.match(stylingCss, /\.page-verify-hero\s*\{[^}]*background:\s*var\(--hero-bg\)[^}]*color:\s*var\(--text-primary\)/s);
+  assert.match(stylingCss, /\.verify-title\s*\{[^}]*color:\s*var\(--text-primary\)/s);
+  assert.match(stylingCss, /\.verify-form \.field-input\s*\{[^}]*background:\s*var\(--bg-card\)[^}]*color:\s*var\(--text-primary\)/s);
+  assert.match(stylingCss, /\.verify-result \.result-card\s*\{[^}]*background:\s*var\(--bg-card\)[^}]*color:\s*var\(--text-primary\)/s);
 });
 
 test('signup creates accounts directly and does not depend on email delivery', () => {
@@ -63,15 +71,19 @@ test('failed application submissions show an error instead of a false success st
   assert.match(submitFunction, /submitButton\.disabled = true/);
   assert.match(submitFunction, /Your application was not submitted and is not yet in the admin review queue/);
   assert.match(submitFunction, /data\.notification\?\.emailSent/);
-  const successIndex = submitFunction.indexOf('showSuccessMessage(email,');
+  const successIndex = submitFunction.indexOf('showSuccessMessage(data.notification?.emailSent !== false)');
   const catchIndex = submitFunction.indexOf('} catch (error) {');
   assert.ok(successIndex >= 0 && successIndex < catchIndex, 'Success should only be shown before the failure handler');
+  assert.doesNotMatch(scriptJs, /<strong>Official contact:<\/strong>/);
 });
 
 test('static localhost previews use the deployed API instead of an unavailable localhost backend', () => {
   assert.match(scriptJs, /const localApiOrigin = \["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)\s*&& \["3000", "5000"\]\.includes\(window\.location\.port\)\s*\?\s*window\.location\.origin\s*:\s*null;/);
   assert.match(scriptJs, /"https:\/\/certicheck-backend-8hu3\.onrender\.com\/api"/);
-  assert.match(indexHtml, /script\.js\?v=20260308-gmail-certificate-refresh/);
+  assert.match(indexHtml, /script\.js\?v=20261004-theme-fix/);
+  assert.match(adminJs, /const localApiOrigin = \["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)\s*&& \["3000", "5000"\]\.includes\(window\.location\.port\)\s*\?\s*window\.location\.origin\s*:\s*null;/);
+  assert.match(adminJs, /: localApiOrigin \|\| DEFAULT_API_BASE_URL;/);
+  assert.match(adminHtml, /admin\.js\?v=20261004-admin-api-fix/);
 });
 
 test('login page includes the approved issuer activation flow', () => {

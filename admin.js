@@ -2,9 +2,8 @@
 
 const DEFAULT_API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com";
 const localApiOrigin = ["localhost", "127.0.0.1"].includes(window.location.hostname)
-  ? (["3000", "5000"].includes(window.location.port)
-    ? window.location.origin
-    : `${window.location.protocol}//${window.location.hostname}:5000`)
+  && ["3000", "5000"].includes(window.location.port)
+  ? window.location.origin
   : null;
 const API_BASE_URL = window.CERTICHECK_API_BASE_URL
   ? window.CERTICHECK_API_BASE_URL.replace(/\/api\/?$/, "")

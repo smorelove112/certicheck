@@ -144,13 +144,13 @@ test('onboarding and credential emails use Gmail API and preserve attachments', 
   assert.match(approvalBodies.join(''), /activate-account/);
   assert.match(certificateRaw, /To: grace@example\.edu/);
   assert.match(certificateBodies.join(''), /Computer Science/);
-  assert.match(certificateBodies.join(''), /2026/);
-  assert.match(certificateBodies.join(''), /gateway\.pinata\.cloud\/ipfs\/bafy-example/);
-  assert.match(certificateBodies.join(''), /explorer\.solana\.com\/tx\/dummy-signature\?cluster=devnet/);
-  assert.match(certificateBodies.join(''), /certificate-verification-qr/);
-  assert.match(certificateRaw, /Content-ID: <certificate-verification-qr>/);
-  assert.match(certificateRaw, /Content-Type: image\/png; name="certificate-verification\.png"/);
+  assert.match(certificateBodies.join(''), /Certificate ID:/);
+  assert.doesNotMatch(certificateBodies.join(''), /gateway\.pinata\.cloud\/ipfs\/bafy-example/);
+  assert.doesNotMatch(certificateBodies.join(''), /explorer\.solana\.com\/tx\/dummy-signature\?cluster=devnet/);
+  assert.doesNotMatch(certificateBodies.join(''), /certificate-verification-qr/);
+  assert.match(certificateRaw, /Content-ID: <certicheck-certificate-frame>/);
   assert.match(certificateRaw, /Content-Type: image\/svg\+xml; name="certicheck-certificate\.svg"/);
+  assert.doesNotMatch(certificateRaw, /Content-Type: image\/png; name="certificate-verification\.png"/);
   assert.equal(certificateBodies.join('').includes('not-included'), false);
 
   assert.equal(await emailService.sendOTP('grace@example.edu', '246810'), true);

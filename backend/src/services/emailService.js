@@ -223,41 +223,16 @@ class EmailService {
     const issuerName = escapeHtml(certificate.issuer_name || certificate.issuerName);
     const certificateId = escapeHtml(certificate.certificate_id || certificate.certificateId);
     const issuedAt = certificate.issued_at || certificate.issuedAt || new Date().toISOString();
-    const ipfsCid = certificate.ipfs_cid || certificate.ipfsCid;
-    const tx = certificate.blockchain_transaction_id || certificate.blockchainTransactionId;
-    const details = certificate.metadata && typeof certificate.metadata === 'object'
-      ? Object.entries(certificate.metadata)
-          .filter(([key, value]) => key !== 'attachment' && value !== undefined && value !== null)
-          .map(([key, value]) => {
-            const detail = typeof value === 'string' ? value : JSON.stringify(value);
-            return `<li><strong>${escapeHtml(key)}:</strong> ${escapeHtml(detail.slice(0, 500))}</li>`;
-          })
-          .join('')
-      : '';
-    const ipfsLink = ipfsCid
-      ? certificate.ipfs_source === 'pinata'
-        ? `<p><strong>IPFS CID:</strong> <a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(ipfsCid)}">${escapeHtml(ipfsCid)}</a></p>`
-        : `<p><strong>Record ID:</strong> ${escapeHtml(ipfsCid)} (not pinned to IPFS)</p>`
-      : '';
-    const chainStatus = certificate.on_chain === true
-      ? 'Confirmed on Solana'
-      : 'Off-chain record; not confirmed on Solana';
-    const cluster = encodeURIComponent(process.env.SOLANA_CLUSTER || 'devnet');
-    const transactionLink = tx
-      ? `<p><strong>Solana transaction:</strong> <a href="https://explorer.solana.com/tx/${encodeURIComponent(tx)}?cluster=${cluster}">${escapeHtml(tx)}</a></p>`
-      : '<p><strong>Network status:</strong> Off-chain record</p>';
-    const safeVerificationUrl = escapeHtml(verificationUrl);
-    const qrCode = await QRCode.toBuffer(verificationUrl, { type: 'png', width: 180, margin: 1 });
     const certificateSvg = this.buildCertificateSvg(certificate, issuedAt);
+    const safeVerificationUrl = escapeHtml(verificationUrl);
     return this.sendEmail({
       to: certificate.holder_email || certificate.holderEmail,
       subject: `Your ${certificate.certificate_type || certificate.certificateType || 'certificate'} from ${certificate.issuer_name || certificate.issuerName || 'CertiCheck'}`,
-      text: `Hello ${certificate.holder_name || certificate.holderName}, your ${certificate.certificate_type || certificate.certificateType} certificate (${certificate.certificate_id || certificate.certificateId}) has been issued by ${certificate.issuer_name || certificate.issuerName}. ${chainStatus}. Verify it at ${verificationUrl}.`,
+      text: `Hello ${certificate.holder_name || certificate.holderName}, your certificate (${certificate.certificate_id || certificate.certificateId}) has been issued by ${certificate.issuer_name || certificate.issuerName}. You can view the issued certificate document and verify it here: ${verificationUrl}.`,
       attachments: [
-        { filename: 'certicheck-certificate.svg', content: Buffer.from(certificateSvg), contentType: 'image/svg+xml' },
-        { filename: 'certificate-verification.png', content: qrCode, contentType: 'image/png', cid: 'certificate-verification-qr' }
+        { filename: 'certicheck-certificate.svg', content: Buffer.from(certificateSvg), contentType: 'image/svg+xml', cid: 'certicheck-certificate-frame' }
       ],
-      html: `<div style="font-family:Arial,sans-serif;max-width:900px;width:100%;margin:auto;padding:24px;box-sizing:border-box;color:#1e293b"><div style="box-sizing:border-box;aspect-ratio:16/9;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:5%;border:1px solid #cbd5e1;border-radius:8px;background:#fff;text-align:center"><p style="margin:0;color:#475569;font-size:12px;font-weight:bold;letter-spacing:4px">CERTIFICATE OF ACHIEVEMENT</p><h1 style="margin:0;font-size:28px;font-weight:600">${certificateType}</h1><p style="margin:0;color:#475569">Presented to <strong style="display:block;margin-top:6px;color:#0f172a;font-size:32px">${holderName}</strong></p><div style="width:34px;height:34px;display:grid;place-items:center;border-radius:50%;background:#312e81;color:#fff;font-size:23px;font-weight:bold">✓</div><strong style="color:#312e81;letter-spacing:3px">CERTICHECK</strong><p style="margin:0">Issued by ${issuerName} · ${escapeHtml(new Date(issuedAt).toLocaleDateString())}</p><p style="width:100%;box-sizing:border-box;margin:0;padding-top:12px;border-top:1px solid #e2e8f0;text-align:left"><strong>Certificate ID:</strong> ${certificateId}<span style="float:right;color:#047857"><strong>VALID</strong></span></p></div><p><strong>On-chain status:</strong> ${chainStatus}</p>${details ? `<h2>Credential details</h2><ul>${details}</ul>` : ''}${ipfsLink}${transactionLink}<p><a href="${safeVerificationUrl}">View and verify your certificate</a></p><p><img src="cid:certificate-verification-qr" width="180" height="180" alt="QR code to verify this certificate"/></p></div>`
+      html: `<div style="font-family:Arial,sans-serif;max-width:900px;width:100%;margin:auto;padding:24px;box-sizing:border-box;color:#1e293b"><p style="margin:0 0 16px;color:#475569">Hello ${holderName},</p><p style="margin:0 0 20px;color:#475569">Your ${certificateType} certificate has been issued by ${issuerName}.</p><div style="display:flex;justify-content:center;margin-bottom:18px"><img src="cid:certicheck-certificate-frame" alt="Certificate frame for ${holderName}" style="max-width:100%;height:auto;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 8px 24px rgba(15,23,42,0.08)" /></div><p style="margin:0;color:#475569">Certificate ID: <strong>${certificateId}</strong></p><p style="margin:12px 0 0"><a href="${safeVerificationUrl}" style="color:#4f46e5;font-weight:700">Verify this certificate</a></p></div>`
     });
   }
 

@@ -95,9 +95,8 @@ const localApiOrigin = ["localhost", "127.0.0.1"].includes(window.location.hostn
 const API_BASE_URL = window.CERTICHECK_API_BASE_URL ||
   (localApiOrigin ? `${localApiOrigin}/api` : "https://certicheck-backend-8hu3.onrender.com/api");
 const CERTIFICATE_PROGRAM_ID = '4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob';
+const CERTIFICATE_QR_PATH = '/certificates/qr/';
 let anchorLoading;
-const PASSWORD_RESET_EMAIL_KEY = 'certicheck_password_reset_email';
-let passwordResetEmail = sessionStorage.getItem(PASSWORD_RESET_EMAIL_KEY) || '';
 
 async function withButtonLoading(button, asyncFn, loadingText = 'Please wait...') {
   if (!button || button.dataset.loading === '1') return;
@@ -1225,35 +1224,21 @@ function getMiniCertificateCardMarkup(certificate, { statusLabel = 'VALID', veri
   const certificateType = certificate.certificate_type || certificate.certificateType || certificate.cert_type || 'Certificate';
   const issuerName = certificate.issuer_name || certificate.issuerName || 'CertiCheck issuer';
   const issuedAt = certificate.issued_at || certificate.issuedAt || certificate.created_at;
-  const metadata = certificate.metadata && typeof certificate.metadata === 'object' ? certificate.metadata : {};
   const cid = certificate.ipfs_cid || certificate.ipfsCid || '';
   const ipfsSource = certificate.ipfs_source || certificate.ipfsSource || '';
-  const transaction = certificate.blockchain_transaction_id || certificate.blockchainTransactionId || '';
-  const cluster = certificate.cluster || 'devnet';
-  const qr = certificateId
-    ? `<img class="mini-certificate-qr" src="${API_BASE_URL}/certificates/qr/${encodeURIComponent(certificateId)}" alt="QR code to verify certificate ${escapeCertificateMarkup(certificateId)}" loading="lazy"/>`
-    : '';
-  const cidMarkup = cid
-    ? `<div><dt>${ipfsSource === 'pinata' ? 'IPFS CID' : 'Record ID'}</dt><dd>${ipfsSource === 'pinata'
-      ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(cid)}" target="_blank" rel="noopener noreferrer">${escapeCertificateMarkup(cid)}</a>`
-      : escapeCertificateMarkup(cid)}</dd></div>`
-    : '';
-  const transactionMarkup = transaction
-    ? `<div><dt>Solana transaction</dt><dd><a href="https://explorer.solana.com/tx/${encodeURIComponent(transaction)}?cluster=${encodeURIComponent(cluster)}" target="_blank" rel="noopener noreferrer">${escapeCertificateMarkup(transaction)}</a></dd></div>`
-    : `<div><dt>Network</dt><dd>${certificate.on_chain === true || certificate.onChain === true ? 'Solana Devnet' : 'Off-chain record'}</dd></div>`;
   const statusText = String(statusLabel).toUpperCase();
-  const credentialDetails = getCredentialDetailsMarkup(metadata);
   const date = issuedAt ? new Date(issuedAt).toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
     timeZone: 'UTC'
   }) : 'Date not provided';
-  const extraDetails = [
-    `<div><dt>Status</dt><dd>${statusText}${certificate.revoked_at || certificate.revokedAt ? ` · revoked ${escapeCertificateMarkup(new Date(certificate.revoked_at || certificate.revokedAt).toLocaleString())}` : ''}</dd></div>`,
-    cidMarkup,
-    transactionMarkup
-  ].filter(Boolean).join('');
+  const ipfsValue = cid
+    ? (ipfsSource === 'pinata'
+      ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(cid)}" target="_blank" rel="noopener noreferrer">${escapeCertificateMarkup(cid)}</a>`
+      : escapeCertificateMarkup(cid))
+    : 'Not pinned';
+  const verificationQrPath = certificateId ? `${CERTIFICATE_QR_PATH}${encodeURIComponent(certificateId)}` : CERTIFICATE_QR_PATH;
 
   return `<article class="mini-certificate-preview${verification ? ' verification-mini-certificate' : ''}${statusText === 'REVOKED' ? ' is-revoked' : ''}" aria-label="Certificate for ${escapeCertificateMarkup(holderName)}">
     <div class="mini-certificate-heading">CERTIFICATE OF ACHIEVEMENT</div>
@@ -1262,13 +1247,12 @@ function getMiniCertificateCardMarkup(certificate, { statusLabel = 'VALID', veri
     <div class="mini-certificate-brand"><span class="mini-certificate-seal" aria-hidden="true">✓</span><span>CERTICHECK</span></div>
     <div class="mini-certificate-issuer">Issued by ${escapeCertificateMarkup(issuerName)} · ${escapeCertificateMarkup(date)}</div>
     <div class="mini-certificate-footer">
-      <span><strong>Certificate ID</strong><br>${escapeCertificateMarkup(certificateId)}</span>
+      <span><strong>Certificate ID</strong><br>${escapeCertificateMarkup(certificateId || '—')}</span>
+      <span><strong>IPFS</strong><br>${ipfsValue}</span>
+      <span><strong>QR</strong><br>${escapeCertificateMarkup(verificationQrPath)}</span>
       <span class="mini-certificate-status">${statusText}</span>
     </div>
-  </article>
-  ${extraDetails ? `<dl class="mini-certificate-details">${extraDetails}</dl>` : ''}
-  ${credentialDetails}
-  ${qr ? `<div class="mini-certificate-qr-wrap">${qr}<span>Scan to verify</span></div>` : ''}`;
+  </article>`;
 }
 
 function getMiniCertificateSvg(certificate) {
@@ -1301,59 +1285,23 @@ function getMiniCertificateSvg(certificate) {
 </svg>`;
 }
 
-function downloadMiniCertificate(certificate) {
-  const blob = new Blob([getMiniCertificateSvg(certificate)], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `certicheck-mini-certificate-${String(certificate.certificateId || certificate.certificate_id || 'certificate').replace(/[^a-zA-Z0-9_-]/g, '_')}.svg`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
 function getCertificateIssuanceSuccessMarkup(certificate, warnings = []) {
   const holderName = escapeCertificateMarkup(certificate.holderName || certificate.holder_name);
   const certificateId = escapeCertificateMarkup(certificate.certificateId || certificate.certificate_id);
   const certificateType = escapeCertificateMarkup(certificate.certificateType || certificate.certificate_type || 'Certificate');
   const issuerName = escapeCertificateMarkup(certificate.issuerName || certificate.issuer_name || 'Certicheck issuer');
-  const issuedAt = certificate.issuedAt || certificate.issued_at || certificate.created_at;
   const status = String(certificate.status || certificate.verification_status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid';
   const transaction = certificate.transaction || certificate.blockchainTransactionId || certificate.blockchain_transaction_id;
   const onChain = certificate.onChain === true || certificate.on_chain === true || Boolean(transaction);
-  const ipfsCid = certificate.ipfsCid || certificate.ipfs_cid;
-  const ipfsSource = certificate.ipfsSource || certificate.ipfs_source;
-  const transactionMarkup = transaction
-    ? `<span class="celebration-break"><strong>Transaction:</strong> ${escapeCertificateMarkup(transaction)} · <a href="https://explorer.solana.com/tx/${encodeURIComponent(transaction)}?cluster=devnet" target="_blank" rel="noopener noreferrer">View on Solana Explorer</a></span>`
-    : '';
-  const ipfsMarkup = ipfsCid
-    ? `<span class="celebration-break"><strong>${ipfsSource === 'pinata' ? 'IPFS CID:' : 'IPFS record:'}</strong> ${ipfsSource === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(ipfsCid)}" target="_blank" rel="noopener noreferrer">${escapeCertificateMarkup(ipfsCid)}</a>` : escapeCertificateMarkup(ipfsCid)}</span>`
-    : '';
   return `<section class="issuance-celebration" aria-labelledby="issuanceCelebrationTitle">
     <div class="issuance-celebration-content">
       <div class="celebration-kicker">${onChain ? 'On-chain issuance complete' : 'Certificate issuance complete · off-chain'}</div>
       <h3 id="issuanceCelebrationTitle">Congratulations, ${holderName}!</h3>
       <p class="celebration-subtitle">Your ${certificateType} certificate is now issued.</p>
       ${getMiniCertificateCardMarkup(certificate, { statusLabel: status.toUpperCase() })}
-      <div class="celebration-actions">
-        <button class="btn-primary" type="button" data-download-mini-certificate>Download mini-certificate</button>
-      </div>
-      <div class="celebration-issuance-details">
-        <span><strong>Status:</strong> ${escapeCertificateMarkup(status)}</span>
-        ${issuedAt ? `<span><strong>Issued:</strong> ${escapeCertificateMarkup(new Date(issuedAt).toLocaleString())}</span>` : ''}
-        ${transactionMarkup}
-        ${ipfsMarkup}
-      </div>
       ${warnings.length ? `<div class="issuance-warnings">${warnings.map((warning) => `<div class="alert alert-info">${escapeCertificateMarkup(warning)}</div>`).join('')}</div>` : ''}
     </div>
   </section>`;
-}
-
-function wireMiniCertificateDownload(container, certificate) {
-  container?.querySelector('[data-download-mini-certificate]')?.addEventListener('click', () => {
-    downloadMiniCertificate(certificate);
-  });
 }
 
 function showCertificateIssuanceCelebration(resultContainer, certificate, warnings = []) {
@@ -1362,7 +1310,6 @@ function showCertificateIssuanceCelebration(resultContainer, certificate, warnin
   const content = document.getElementById('issuanceSuccessContent');
   if (dialog && content && typeof dialog.showModal === 'function') {
     content.innerHTML = markup;
-    wireMiniCertificateDownload(content, certificate);
     if (resultContainer) {
       const certificateId = certificate.certificateId || certificate.certificate_id;
       resultContainer.innerHTML = `<div class="alert alert-success" role="status">Certificate ${escapeCertificateMarkup(certificateId)} issued successfully.</div>`;
@@ -1373,7 +1320,6 @@ function showCertificateIssuanceCelebration(resultContainer, certificate, warnin
 
   if (resultContainer) {
     resultContainer.innerHTML = markup;
-    wireMiniCertificateDownload(resultContainer, certificate);
   }
 }
 
@@ -1694,9 +1640,6 @@ function renderRoleLandingHome() {
         await handleWalletConnect(walletConnectBtn);
       };
     }
-    const savedIssuerResult = document.getElementById('issuerDashboardResult');
-    if (latestIssuerResult) wireMiniCertificateDownload(savedIssuerResult, latestIssuerResult);
-
     document.querySelectorAll('.revoke-certificate').forEach(button => {
       button.addEventListener('click', async () => {
         const certificateId = button.dataset.certificateId;
@@ -1963,8 +1906,6 @@ function navigate(page) {
 
 function initAuthPageForms(page) {
   if (page === "change-password") initChangePasswordForm();
-  if (page === "forgot-password") initForgotPasswordForm();
-  if (page === "verify-reset-otp") initResetPasswordForm();
   if (page === "login") initIssuerActivationForm();
 }
 
@@ -2164,110 +2105,6 @@ function initIssuerActivationForm() {
         errorEl.style.display = 'block';
       }
     }, 'Creating password...');
-  });
-}
-
-function initForgotPasswordForm() {
-  const form = document.getElementById('forgotPasswordForm');
-  const emailEl = document.getElementById('forgotEmail');
-  const errorEl = document.getElementById('forgotError');
-  const button = document.getElementById('forgotBtn');
-
-  if (!form || form.dataset.bound === 'true') return;
-  form.dataset.bound = 'true';
-
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    errorEl.style.display = 'none';
-    const email = emailEl.value.trim().toLowerCase();
-    if (!emailEl.checkValidity()) {
-      errorEl.textContent = 'Enter a valid email address';
-      errorEl.style.display = 'block';
-      return;
-    }
-
-    await withButtonLoading(button, async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Unable to send a reset code');
-
-        passwordResetEmail = email;
-        sessionStorage.setItem(PASSWORD_RESET_EMAIL_KEY, email);
-        navigate('verify-reset-otp');
-      } catch (error) {
-        errorEl.textContent = error.message === 'Unable to send code right now.'
-          ? 'Unable to send reset code. Please try again later.'
-          : error.message || 'Unable to send reset code. Please try again later.';
-        errorEl.style.display = 'block';
-      }
-    }, 'Sending code...');
-  });
-}
-
-function initResetPasswordForm() {
-  const form = document.getElementById('resetPasswordForm');
-  const codeEl = document.getElementById('resetOtpCode');
-  const passwordEl = document.getElementById('newPassword');
-  const confirmEl = document.getElementById('confirmNewPassword');
-  const errorEl = document.getElementById('resetError');
-  const button = document.getElementById('resetPasswordBtn');
-
-  if (!form || form.dataset.bound === 'true') return;
-  form.dataset.bound = 'true';
-
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    errorEl.style.display = 'none';
-    const otpCode = codeEl.value.trim();
-    const newPassword = passwordEl.value;
-
-    if (!passwordResetEmail) {
-      errorEl.textContent = 'Request a reset code first.';
-      errorEl.style.display = 'block';
-      navigate('forgot-password');
-      return;
-    }
-    if (!/^\d{6}$/.test(otpCode)) {
-      errorEl.textContent = 'Enter the 6-digit code from your email.';
-      errorEl.style.display = 'block';
-      return;
-    }
-    if (newPassword.length < 6) {
-      errorEl.textContent = 'Password must be at least 6 characters.';
-      errorEl.style.display = 'block';
-      return;
-    }
-    if (newPassword !== confirmEl.value) {
-      errorEl.textContent = 'Passwords do not match.';
-      errorEl.style.display = 'block';
-      return;
-    }
-
-    await withButtonLoading(button, async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: passwordResetEmail, otpCode, newPassword })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Unable to reset password');
-
-        passwordResetEmail = '';
-        sessionStorage.removeItem(PASSWORD_RESET_EMAIL_KEY);
-        form.reset();
-        navigate('login');
-        showLoginNotice('Password reset', data.message || 'Your password has been reset successfully. You can now sign in.');
-      } catch (error) {
-        errorEl.textContent = error.message || 'Unable to reset password';
-        errorEl.style.display = 'block';
-      }
-    }, 'Resetting password...');
   });
 }
 
@@ -3930,7 +3767,7 @@ async function submitApplyForm() {
     const hidden = document.getElementById('contactEmail');
     if (hidden) hidden.value = email;
     if (currentUser) { currentUser.issuer_status = 'pending'; setStoredUser(currentUser); if (currentPage === 'home') renderRoleLandingHome(); }
-    showSuccessMessage(email, data.notification?.emailSent !== false);
+    showSuccessMessage(data.notification?.emailSent !== false);
   } catch (error) {
     console.error('Error submitting application:', error);
     saveApplicationLocally(applicationData);
@@ -3976,7 +3813,7 @@ function clearPendingApplicationDraft() {
   try { localStorage.removeItem('certicheck_pending_application_draft'); } catch (e) {}
 }
 
-function showSuccessMessage(officialEmail, confirmationEmailSent = true) {
+function showSuccessMessage(confirmationEmailSent = true) {
   navigate("apply");
   document.getElementById(`form-step-${applyStep}`)?.classList.remove("active");
   document.getElementById("form-step-success")?.classList.add("active");
@@ -3984,7 +3821,7 @@ function showSuccessMessage(officialEmail, confirmationEmailSent = true) {
 
   const msg = document.getElementById("successMsg");
   if (msg) {
-    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:10px;">${confirmationEmailSent ? 'We sent a confirmation email with next steps.' : 'Your application was saved, but its confirmation email could not be delivered. Our team will still review it.'}</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${escapeCertificateMarkup(officialEmail)}</div>`;
+    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:10px;">${confirmationEmailSent ? 'We sent a confirmation email with next steps.' : 'Your application was saved, but its confirmation email could not be delivered. Our team will still review it.'}</div>`;
   }
 
   // Mark all steps done
