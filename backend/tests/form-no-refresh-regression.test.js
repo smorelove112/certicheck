@@ -76,9 +76,13 @@ test('static localhost previews use the deployed API instead of an unavailable l
 
 test('login page includes the approved issuer activation flow', () => {
   assert.match(indexHtml, /id="page-login"/);
+  assert.match(indexHtml, /Already have an account\?[\s\S]*?<\/p>\s*<\/div>\s*<\/div>\s*<\/div>\s*<!-- ═══[\s\S]*?PAGE: LOGIN[\s\S]*?-->\s*<div id="page-login"/);
   assert.match(indexHtml, /id="loginIssuerActivation"/);
   assert.match(indexHtml, /class="login-section-title" id="loginIssuerSetupTitle">Issuer account setup/);
-  assert.match(indexHtml, /id="loginSignInFields" hidden/);
+  assert.match(indexHtml, /id="loginSignInFields">/);
+  assert.match(indexHtml, /id="loginIssuerActivation" hidden/);
+  assert.match(indexHtml, /id="loginActivationToggleRow"/);
+  assert.match(indexHtml, /id="activationLoginToggleRow" hidden/);
   assert.match(indexHtml, /id="issuerActivationForm"/);
   assert.match(indexHtml, /<label class="field-label" for="activationCode">Activation code<\/label>/);
   assert.match(indexHtml, /id="activationCode"[^>]*pattern="\[0-9\]\{6\}"/);
