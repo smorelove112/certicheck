@@ -50,6 +50,11 @@ test('verification hero and result controls follow the active theme', () => {
   assert.match(stylingCss, /\.verify-result \.result-card\s*\{[^}]*background:\s*var\(--bg-card\)[^}]*color:\s*var\(--text-primary\)/s);
 });
 
+test('feature cards stack one per row on mobile and tablet layouts', () => {
+  assert.match(stylingCss, /@media \(max-width: 900px\) \{[\s\S]*?\.features-inner \{ grid-template-columns: 1fr; \}/);
+  assert.match(indexHtml, /styling\.css\?v=20261004-mobile-feature-stack/);
+});
+
 test('signup creates accounts directly and does not depend on email delivery', () => {
   assert.match(indexHtml, /id="signupBtn"[^>]*>Create Account/);
   assert.match(scriptJs, /fetch\(`\$\{API_BASE_URL\}\/auth\/register`/);

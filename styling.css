@@ -2226,7 +2226,7 @@ body.dark .powered-by-logo img {
   .tps-grid { grid-template-columns: 1fr 1fr; }
   .tps-main-card { grid-column: span 2; }
   .info-strip { grid-template-columns: 1fr 1fr; }
-  .features-inner { grid-template-columns: 1fr 1fr; }
+  .features-inner { grid-template-columns: 1fr; }
   .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
   /* Make hero CTAs stack and be touch-friendly on small screens */
   .hero-ctas { flex-direction: column; gap: 12px; margin-bottom: 28px; }
